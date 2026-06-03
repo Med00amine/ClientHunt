@@ -1,0 +1,16 @@
+.env
+data/*
+!data/README.md
+!data/.gitkeep
+exports/*
+!exports/.gitkeep
+backups/*
+!backups/.gitkeep
+backend/.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+frontend/node_modules/
+frontend/dist/
+frontend/test-results/
+frontend/playwright-report/
