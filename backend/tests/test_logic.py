@@ -406,3 +406,30 @@ def test_cli_forget_keeps_suppression(db):
     assert main(["forget", "Z@Y.com"]) == 0
     db.expire_all()
     assert db.query(BusinessContact).count() == 0 and db.query(Suppression).filter_by(email_norm="z@y.com").count() == 1
+
+
+def test_research_excerpts_are_single_sentences_not_run_ons(db):
+    page = ('<html><head><title>Northwind Analytics – Forecasting</title></head><body><h1>Northwind Analytics</h1>'
+            '<p>Our platform exposes a public API so customers can integrate forecasts.</p><p>We automate onboarding with Python.</p></body></html>')
+    f = SafeFetcher(httpx.Client(transport=httpx.MockTransport(
+        lambda r: httpx.Response(404) if r.url.path == "/robots.txt" else httpx.Response(200, text=page, headers={"content-type": "text/html"}))),
+        resolver=lambda h: ["93.184.216.34"])
+    c = Company(name="Northwind", name_norm="northwind", website="https://nw.example"); db.add(c); db.commit()
+    research.research_company(db, c, None, f)
+    api = [e for e in db.scalars(select(Evidence)) if e.claim.startswith("Site mentions API")]
+    assert api and api[0].excerpt == "Our platform exposes a public API so customers can integrate forecasts."
+    py = [e for e in db.scalars(select(Evidence)) if e.claim.startswith("Site mentions Python")]
+    assert py and py[0].excerpt == "We automate onboarding with Python."
+
+
+def test_research_does_not_repeat_title_or_description_as_topic_mentions(db):
+    page = ('<html><head><title>Harbor Cloud – AWS migration consultancy</title></head>'
+            '<body><h1>Harbor Cloud</h1><p>We move workloads to AWS for mid-size companies.</p></body></html>')
+    f = SafeFetcher(httpx.Client(transport=httpx.MockTransport(
+        lambda r: httpx.Response(404) if r.url.path == "/robots.txt" else httpx.Response(200, text=page, headers={"content-type": "text/html"}))),
+        resolver=lambda h: ["93.184.216.34"])
+    c = Company(name="Harbor", name_norm="harbor", website="https://harbor.example"); db.add(c); db.commit()
+    research.research_company(db, c, None, f)
+    excerpts = [e.excerpt for e in db.scalars(select(Evidence)).all() if e.kind == "fact"]
+    assert excerpts.count("Harbor Cloud – AWS migration consultancy") == 1
+    assert "We move workloads to AWS for mid-size companies." in excerpts

@@ -88,9 +88,13 @@ def research_company(db: Session, company: Company, opp: Opportunity | None, fet
     db.execute(delete(Evidence).where(Evidence.company_id == company.id, Evidence.approved.is_(False)))
     n = 0
     now = utcnow()
+    seen: set[str] = set()        # the same text on several URLs (catch-all sites) is stored once
+    mentioned: list[str] = []
+    first_url = pages[0][0]
     for page_url, html in pages:
         soup = BeautifulSoup(html, "html.parser")
-        text = _norm(html_to_text(html, 60000))
+        raw_text = html_to_text(html, 60000)  # keeps line breaks so headings and paragraphs stay separate excerpts
+        text = _norm(raw_text)
         title = _norm(soup.title.get_text()) if soup.title else ""
         meta = soup.find("meta", attrs={"name": "description"}) or soup.find("meta", attrs={"property": "og:description"})
         desc = _norm(meta.get("content", "")) if meta else ""
@@ -99,28 +103,36 @@ def research_company(db: Session, company: Company, opp: Opportunity | None, fet
             candidates.append(("Page title", title, "high"))
         if desc:
             candidates.append(("Company describes itself", desc, "high"))
+        hits: dict[str, list[str]] = {}   # sentence -> topics it mentions (one fact per sentence)
         for topic, pat in TOPICS.items():
-            for sent in re.split(r"(?<=[.!?])\s+|\n", text):
+            for sent in re.split(r"(?<=[.!?])\s+|\n", raw_text):
+                sent = _norm(sent)
+                if sent in (title, desc):
+                    continue  # already recorded as the page title / self-description
                 if re.search(pat, sent, re.I) and 25 < len(sent) < 300:
-                    candidates.append((f"Site mentions {topic}", _norm(sent), "medium"))
+                    hits.setdefault(sent, []).append(topic)
+                    if topic not in mentioned:
+                        mentioned.append(topic)
                     break
+        for sent, topics in hits.items():
+            candidates.append((f"Site mentions {', '.join(topics)}", sent, "medium"))
         for label, excerpt, conf in candidates:
             hay = text + " " + title + " " + desc
-            if excerpt not in hay:  # verification: excerpt must really be in the page
+            if excerpt not in hay or excerpt in seen:  # verification: excerpt must really be in the page
                 continue
+            seen.add(excerpt)
             db.add(Evidence(company_id=company.id, opportunity_id=opp.id if opp else None, kind="fact",
                             claim=f"{label}: {excerpt[:200]}", excerpt=excerpt[:400], source_url=page_url,
                             retrieved_at=now, confidence=conf, approved=False))
             n += 1
             if label == "Company describes itself" and not company.description:
                 company.description = excerpt[:600]
-        mentioned = [t for t in TOPICS if any(e for e in candidates if e[0] == f"Site mentions {t}")]
-        if mentioned and opp is not None:
-            db.add(Evidence(company_id=company.id, opportunity_id=opp.id, kind="hypothesis",
-                            claim=f"Hypothesis (unverified inference): site mentions {', '.join(mentioned)}, so work on "
-                                  f"your matching skills may be relevant. Confirm with the client before relying on it.",
-                            excerpt="", source_url=page_url, retrieved_at=now, confidence="low", approved=False))
-            n += 1
+    if mentioned and opp is not None:
+        db.add(Evidence(company_id=company.id, opportunity_id=opp.id, kind="hypothesis",
+                        claim=f"Hypothesis (unverified inference): site mentions {', '.join(mentioned)}, so work on "
+                              f"your matching skills may be relevant. Confirm with the client before relying on it.",
+                        excerpt="", source_url=first_url, retrieved_at=now, confidence="low", approved=False))
+        n += 1
     emails = discover_emails(db, opp, fetcher, pages[0][0], pages) if opp is not None else 0
     company.research_status = "done" if (n or emails) else "no_evidence"
     company.researched_at = now
