@@ -28,7 +28,7 @@ def _norm(s: str) -> str:
     return re.sub(r"\s+", " ", s).strip()
 
 
-CONTACT_PATHS = ("/contact", "/contact-us", "/careers", "/jobs", "/join-us")
+CONTACT_PATHS = ("/contact", "/contact-us", "/careers", "/jobs", "/join-us", "/partners", "/freelancers", "/work-with-us")
 _SLD = {"co", "com", "org", "net", "ac", "gov", "edu"}
 
 
@@ -40,13 +40,15 @@ def site_domain(url: str) -> str:
     return ".".join(parts[-2:]) if len(parts) >= 2 else host
 
 
-def discover_emails(db: Session, opp: Opportunity, fetcher: SafeFetcher, home_url: str, pages: list) -> int:
-    """Role mailboxes (jobs@, careers@, contact@...) published on the company's own pages, same domain only."""
+def discover_emails(db: Session, opp: Opportunity, fetcher: SafeFetcher, home_url: str, pages: list,
+                    mode: str = "application", report: dict | None = None) -> int:
+    """Role mailboxes (jobs@, careers@, contact@...) published on the company's own pages, same domain only.
+    `report`, when given, collects the fetched page URLs and their text (for the prospect signals)."""
     domain = site_domain(home_url)
     pages = list(pages)
     have = {u for u, _ in pages}
     for path in CONTACT_PATHS:
-        if len(pages) >= 5:
+        if len(pages) >= 6:
             break
         url = home_url.rstrip("/") + path
         if url in have:
@@ -57,13 +59,18 @@ def discover_emails(db: Session, opp: Opportunity, fetcher: SafeFetcher, home_ur
             continue
     n = 0
     for url, html in pages:
-        n += len(leads.attach_emails(db, opp, html_to_text(html, 60000), "website", source_url=url,
-                                     only_role_on_domain=domain))
+        text = html_to_text(html, 60000)
+        if report is not None:
+            report.setdefault("pages", []).append(url)
+            report["text"] = (report.get("text", "") + "\n" + text[:6000])[:30000]
+        n += len(leads.attach_emails(db, opp, text, "website", source_url=url, only_role_on_domain=domain, mode=mode))
     return n
 
 
-def research_company(db: Session, company: Company, opp: Opportunity | None, fetcher: SafeFetcher) -> int:
-    """Returns number of evidence rows stored. Sets company.research_status."""
+def research_company(db: Session, company: Company, opp: Opportunity | None, fetcher: SafeFetcher,
+                     mode: str = "application", report: dict | None = None) -> int:
+    """Returns number of evidence rows stored. Sets company.research_status. mode='pitch' classifies the mailboxes
+    found on the site for an unsolicited B2B message (never 'eligible' unless the site invites freelancers/partners)."""
     if not company.website:
         company.research_status = "no_website"
         db.commit()
@@ -133,7 +140,7 @@ def research_company(db: Session, company: Company, opp: Opportunity | None, fet
                               f"your matching skills may be relevant. Confirm with the client before relying on it.",
                         excerpt="", source_url=first_url, retrieved_at=now, confidence="low", approved=False))
         n += 1
-    emails = discover_emails(db, opp, fetcher, pages[0][0], pages) if opp is not None else 0
+    emails = discover_emails(db, opp, fetcher, pages[0][0], pages, mode, report) if opp is not None else 0
     company.research_status = "done" if (n or emails) else "no_evidence"
     company.researched_at = now
     company.last_error = ""

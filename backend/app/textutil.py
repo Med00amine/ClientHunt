@@ -10,7 +10,7 @@ _TRACKING = {"utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_conten
 
 def html_to_text(html: str, limit: int = 8000) -> str:
     """Untrusted HTML -> plain text. Scripts/styles dropped; nothing is executed or followed."""
-    soup = BeautifulSoup(html or "", "html.parser")
+    soup = BeautifulSoup((html or "") + " ", "html.parser")  # trailing space: html.parser drops a final bare "&T"
     for t in soup(["script", "style", "noscript", "iframe"]):
         t.decompose()
     for a in soup.find_all("a", href=True):  # keep mailto: addresses that get_text() would drop

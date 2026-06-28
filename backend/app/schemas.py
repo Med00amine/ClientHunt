@@ -23,6 +23,7 @@ class SearchIn(BaseModel):
     min_fit: float = Field(default=20.0, ge=0, le=100)
     min_ease: float = Field(default=0.0, ge=0, le=100)
     require_email: bool = False
+    strict_engagement: bool = False
     max_companies: int | None = Field(default=None, ge=0, le=100)
     max_drafts: int | None = Field(default=None, ge=0, le=100)
 
@@ -114,3 +115,23 @@ class EvidenceApprove(BaseModel):
 class PortfolioToggle(BaseModel):
     verified: bool
     url: str | None = None
+
+
+class ProspectItem(BaseModel):
+    website: str = Field(min_length=3, max_length=300)
+    name: str = Field(default="", max_length=200)
+    category: str = Field(default="company", pattern="^(company|agency|network)$")
+    offer: str = Field(default="", max_length=40)
+    evidence_url: str = Field(default="", max_length=500)
+    evidence_quote: str = Field(default="", max_length=600)
+
+
+class ProspectsIn(BaseModel):
+    items: list[ProspectItem] = Field(min_length=1, max_length=25)
+    research: bool = True
+
+
+class ProspectPatch(BaseModel):
+    offer: str | None = Field(default=None, max_length=40)
+    category: str | None = Field(default=None, pattern="^(company|agency|network)$")
+    name: str | None = Field(default=None, max_length=200)

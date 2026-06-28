@@ -34,6 +34,7 @@ def clean(migrated):
             c.execute(t.delete())
     for f in get_settings().exports_dir.glob("*"):
         f.unlink()
+    get_settings().portfolio_path.unlink(missing_ok=True)      # every test starts from the default portfolio
     from app.services import presets
     with SessionLocal() as db:
         presets.seed(db)

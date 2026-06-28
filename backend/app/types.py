@@ -45,6 +45,7 @@ class SearchParams:
     min_fit: float = 20.0
     min_ease: float = 0.0
     require_email: bool = False
+    strict_engagement: bool = False   # drop listings whose engagement type is unknown
     max_companies: int | None = None
     max_drafts: int | None = None
 

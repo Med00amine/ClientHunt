@@ -247,3 +247,148 @@ def test_leads_default_ranking_combines_fit_and_ease(client, db):
     runner.execute_run(db, rid, factory_for({"fake": FakeAdapter([weak, strong])}))
     names = [i["company_name"] for i in client.get("/api/leads?hide_restricted=false").json()["items"]]
     assert names[0] == "Strong"
+
+
+# ---------------------------------------------------------------- company websites: general mailboxes stay "review", invitations are honoured
+def test_plain_contact_line_on_a_site_does_not_make_a_mailbox_eligible(db):
+    run = go(db, {"fake": FakeAdapter([raw(1, company_name="Acme", company_website="https://acme.example")])})
+    o = db.scalar(select(Opportunity))
+    from app.services import leads as L
+    cs = L.attach_emails(db, o, "Contact: hello@acme.example. Press: press@acme.example", "website", "https://acme.example/contact", "acme.example")
+    assert [(c.email, c.outreach_eligibility, c.contact_purpose) for c in cs] == [("hello@acme.example", "review_required", "general_business_contact")]
+
+
+@pytest.mark.parametrize("text,email", [
+    ("We are always looking for freelance engineers: write to partners@acme.example to apply.", "partners@acme.example"),
+    ("Become one of our freelance partners: email partners@acme.example", "partners@acme.example"),
+    ("Freelancers and contractors can contact us at freelance@acme.example", "freelance@acme.example"),
+])
+def test_website_invitations_to_freelancers_are_eligible_in_pitch_mode(db, text, email):
+    go(db, {"fake": FakeAdapter([raw(1, company_name="Acme", company_website="https://acme.example")])})
+    o = db.scalar(select(Opportunity))
+    from app.services import leads as L
+    cs = L.attach_emails(db, o, text, "website", "https://acme.example/partners", "acme.example", mode="pitch")
+    assert [(c.email, c.outreach_eligibility, c.contact_purpose) for c in cs] == [(email, "eligible", "partner_invited")]
+
+
+def test_pitch_mode_never_treats_a_plain_or_careers_mailbox_as_invited(db):
+    go(db, {"fake": FakeAdapter([raw(1, company_name="Acme", company_website="https://acme.example")])})
+    o = db.scalar(select(Opportunity))
+    from app.services import leads as L
+    cs = L.attach_emails(db, o, "Careers: careers@acme.example  General: hello@acme.example", "website", "https://acme.example/contact", "acme.example", mode="pitch")
+    assert {c.email: (c.outreach_eligibility, c.contact_purpose) for c in cs} == {
+        "careers@acme.example": ("review_required", "b2b_mailbox"), "hello@acme.example": ("review_required", "b2b_mailbox")}
+    assert "unsolicited" in cs[0].eligibility_basis and "opt out" in cs[0].eligibility_basis
+
+
+# ---------------------------------------------------------------- company sites, application mode: an explicit "send your CV here" counts, a label does not
+@pytest.mark.parametrize("text,email,eligible", [
+    ("To join LD Talent, please send your resumé (PDF or DOC only) to info@acme.example.", "info@acme.example", True),
+    ("Interested? Send your CV to talent@acme.example", "talent@acme.example", True),
+    ("To apply, email hello@acme.example", "hello@acme.example", True),
+    ("Submit your application to people@acme.example", "people@acme.example", True),
+    ("Contact: hello@acme.example", "hello@acme.example", False),
+    ("Email: info@acme.example", "info@acme.example", False),
+    ("Questions about our product? Write to info@acme.example", "info@acme.example", False),
+    ("We do not accept CVs sent to info@acme.example", "info@acme.example", False),
+])
+def test_on_a_company_site_only_an_explicit_application_invitation_makes_a_mailbox_eligible(db, text, email, eligible):
+    go(db, {"fake": FakeAdapter([raw(1, company_name="Acme", company_website="https://acme.example")])})
+    o = db.scalar(select(Opportunity))
+    from app.services import leads as L
+    cs = L.attach_emails(db, o, text, "website", "https://acme.example/careers", "acme.example")
+    assert [c.outreach_eligibility for c in cs] == ["eligible" if eligible else "review_required"]
+    if eligible:
+        assert cs[0].contact_purpose in ("application_invited", "careers_mailbox")
+
+
+def test_the_same_resume_sentence_never_makes_a_mailbox_eligible_for_a_pitch(db):
+    go(db, {"fake": FakeAdapter([raw(1, company_name="Acme", company_website="https://acme.example")])})
+    o = db.scalar(select(Opportunity))
+    from app.services import leads as L
+    cs = L.attach_emails(db, o, "Please send your resumé to info@acme.example.", "website", "https://acme.example/careers", "acme.example", mode="pitch")
+    assert [(c.outreach_eligibility, c.contact_purpose) for c in cs] == [("review_required", "b2b_mailbox")]   # a job application is not a services pitch
+
+
+# ---------------------------------------------------------------- reading a site again refreshes what the app decided, never what you set
+def test_reading_the_site_again_refreshes_the_apps_own_decision_but_never_one_set_by_hand(db):
+    from app.services import contacts as C, leads as L
+    go(db, {"fake": FakeAdapter([raw(1, company_name="Acme", company_website="https://acme.example")])})
+    o = db.scalar(select(Opportunity))
+    url = "https://acme.example/join"
+    first = L.attach_emails(db, o, "Contact: info@acme.example", "website", url, "acme.example")[0]
+    assert (first.outreach_eligibility, first.contact_purpose) == ("review_required", "general_business_contact")
+    invite = "To join Acme, please send your resumé to info@acme.example."
+    again = L.attach_emails(db, o, invite, "website", url, "acme.example")[0]
+    assert again.id == first.id and (again.outreach_eligibility, again.contact_purpose) == ("eligible", "application_invited")   # the app improved its own call
+    C.set_eligibility(db, again, "review_required", "Agreed with the founder by phone: keep as review")
+    L.attach_emails(db, o, invite, "website", url, "acme.example")
+    db.refresh(again)
+    assert again.outreach_eligibility == "review_required" and again.eligibility_basis.startswith("Agreed with the founder")   # your decision stands
+
+
+def test_an_address_of_another_opportunity_is_not_flipped_by_a_read_in_another_context(db):
+    from app.services import leads as L
+    go(db, {"fake": FakeAdapter([raw(1, company_name="Acme", company_website="https://acme.example"),
+                                 raw(2, company_name="Acme Labs", company_website="https://acme.example")])})
+    a, b = db.scalars(select(Opportunity).order_by(Opportunity.id)).all()
+    box = L.attach_emails(db, a, "Contact: info@acme.example", "website", "https://acme.example/c", "acme.example", mode="pitch")[0]
+    assert (box.outreach_eligibility, box.contact_purpose, box.opportunity_id) == ("review_required", "b2b_mailbox", a.id)
+    L.attach_emails(db, b, "To join, please send your resumé to info@acme.example.", "website", "https://acme.example/join", "acme.example")
+    db.refresh(box)
+    assert (box.outreach_eligibility, box.contact_purpose) == ("review_required", "b2b_mailbox")      # stays as the first context decided
+
+
+# ---------------------------------------------------------------- a hiring post that says it is CLOSED is not a lead
+CLOSED_SAMPLES = ["OpenSanctions | Product Engineer | Berlin / REMOTE | Freelance | CLOSED NOW - STOP SENDING AGENTIC BS",
+                  "[CLOSED] Acme | Python engineer | Remote", "Acme | Python engineer | Remote | CLOSED",
+                  "Acme | Python engineer | Remote (position filled, thanks!)", "No longer hiring: Acme | Python engineer"]
+OPEN_SAMPLES = ["Acme | Python engineer | Remote | closed beta of our new product, apply by email", "Acme | Python engineer | Remote | we close the loop with customers fast",
+                "Acme | Python engineer | Remote | Contract"]
+
+
+@pytest.mark.parametrize("text", CLOSED_SAMPLES)
+def test_closed_posts_are_recognised(text):
+    from app.adapters import hn_hiring
+    from app.services import leads as L
+    assert L.CLOSED_POST.search(text) and hn_hiring.CLOSED_POST.search(text)           # the adapter and the clean-up agree
+
+
+@pytest.mark.parametrize("text", OPEN_SAMPLES)
+def test_open_posts_are_not_mistaken_for_closed_ones(text):
+    from app.adapters import hn_hiring
+    from app.services import leads as L
+    assert not L.CLOSED_POST.search(text) and not hn_hiring.CLOSED_POST.search(text)
+
+
+def test_the_hn_adapter_skips_a_closed_post_and_the_startup_step_closes_stored_ones(db):
+    import httpx
+    from app.adapters import hn_hiring
+    from app.services import leads as L
+    from app.types import SearchParams
+
+    def h(req):
+        if "tags=story" in str(req.url) and "author_whoishiring" in str(req.url):
+            return httpx.Response(200, json={"hits": [{"objectID": "100", "title": "Ask HN: Who is hiring? (October 2026)"}]})
+        return httpx.Response(200, json={"nbPages": 1, "hits": [
+            {"objectID": "1", "parent_id": 100, "comment_text": "Acme | Python | Remote | CLOSED NOW<p>Python AWS", "created_at_i": 1790000000},
+            {"objectID": "2", "parent_id": 100, "comment_text": "Beta | Python | Remote | Contract<p>Python AWS", "created_at_i": 1790000000}]})
+    out = hn_hiring.HNHiring(db, httpx.Client(transport=httpx.MockTransport(h))).fetch(SearchParams())
+    assert [o.external_id for o in out] == ["2"]
+    go(db, {"fake": FakeAdapter([raw(1, source_key="hn_hiring", description="Acme | Python | Remote | CLOSED NOW. " + "Python FastAPI AWS Docker. " * 10),
+                                 raw(2, source_key="hn_hiring", description="Beta | Python | Remote | Contract. " + "Python FastAPI AWS Docker. " * 10)])})
+    assert L.close_stale_posts(db) == 1 and L.close_stale_posts(db) == 0              # idempotent
+    status = {o.company_name: o.listing_status for o in db.scalars(select(Opportunity))}
+    assert sorted(status.values()) == ["closed", "open"]
+
+
+def test_a_closed_listing_is_not_offered_as_a_lead(client, db):
+    from app.services import exporter
+    go(db, {"fake": FakeAdapter([raw(1, company_name="Open Co", description="Python FastAPI LLM AWS Docker. To apply, email your resume to jobs@open.example. " * 2),
+                                 raw(2, company_name="Closed Co", description="Python FastAPI LLM AWS Docker. To apply, email your resume to jobs@closed.example. " * 2)])})
+    o = db.scalar(select(Opportunity).where(Opportunity.company_name == "Closed Co"))
+    o.listing_status = "closed"; db.commit()
+    names = {i["company_name"] for i in client.get("/api/leads?hide_restricted=false").json()["items"]}
+    assert names == {"Open Co"}
+    leads_sheet = {r["company_name"] for r in exporter.build_combined(db)["leads"]}
+    assert leads_sheet == {"Open Co"} and {r["company_name"] for r in exporter.build_combined(db)["opportunities"]} == {"Open Co", "Closed Co"}   # still listed, just not a lead

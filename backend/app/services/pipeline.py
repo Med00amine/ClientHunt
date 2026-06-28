@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import html as htmllib
 from datetime import timedelta
 
 from sqlalchemy import select
@@ -9,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from ..models import (Company, Opportunity, OpportunityHistory, RunOpportunity, utcnow)
 from ..portfolio import load_portfolio
-from ..scoring import geo_status, now_naive, recommend, score
+from ..scoring import effective_geo, now_naive, recommend, score
 from ..textutil import canonical_url, content_hash, fingerprint, norm_text
 from ..types import RawOpportunity, SearchParams
 from . import leads
@@ -28,6 +29,8 @@ def passes_filters(raw: RawOpportunity, p: SearchParams, now=None) -> tuple[bool
     now = now or now_naive()
     if p.remote_only and raw.remote_status in ("onsite", "hybrid"):
         return False, "not remote"
+    if p.strict_engagement and raw.engagement_type == "unknown":
+        return False, "engagement type not stated"
     if p.engagement_types:
         wanted = set().union(*(ENGAGEMENT_ALIASES.get(t, {t}) for t in p.engagement_types))
         if raw.engagement_type != "unknown" and raw.engagement_type not in wanted:
@@ -36,7 +39,7 @@ def passes_filters(raw: RawOpportunity, p: SearchParams, now=None) -> tuple[bool
         return False, "older than date range"
     if p.min_rate is not None and raw.rate_type == "hourly" and raw.budget_max is not None and raw.budget_max < p.min_rate:
         return False, "below minimum rate"
-    if p.country and geo_status(raw.location_requirements) == "restricted":
+    if p.country and effective_geo(raw.location_requirements, raw.description) == "restricted":
         if p.country.lower() not in raw.location_requirements.lower():
             return False, "location restriction"
     kws = [k.lower() for k in (p.keywords + p.required_skills) if k]
@@ -88,8 +91,12 @@ def process(db: Session, raws: list[RawOpportunity], p: SearchParams, run_id: in
     seen_fp: set[str] = set()
     scored = []
     for raw in raws:
-        if not raw.url or not raw.title:
-            stats["rejected_irrelevant"] += 1
+        for attr in ("title", "company_name", "location_requirements"):   # feeds sometimes double-encode: "Angular &amp; Python"
+            v = getattr(raw, attr)
+            if v and "&" in v:
+                setattr(raw, attr, htmllib.unescape(v))
+        if not raw.url or not raw.title or not raw.url.strip().lower().startswith(("http://", "https://")):
+            stats["rejected_irrelevant"] += 1      # also blocks javascript:/data:/file: links from untrusted feeds
             continue
         ok, _ = passes_filters(raw, p)
         if not ok:
@@ -99,7 +106,8 @@ def process(db: Session, raws: list[RawOpportunity], p: SearchParams, run_id: in
         if sc["total"] < p.min_fit:
             stats["rejected_irrelevant"] += 1
             continue
-        mails = leads.extract_emails(raw.description)
+        strict_mail = raw.source_type == "api" and raw.source_key != "hn_hiring"      # ordinary boards: need clear apply wording
+        mails = leads.extract_emails(raw.description, strict=strict_mail)
         has_email = any(m["invited"] for m in mails)
         if p.require_email and not mails:
             stats["rejected_irrelevant"] += 1
@@ -108,9 +116,9 @@ def process(db: Session, raws: list[RawOpportunity], p: SearchParams, run_id: in
         if ease[0] < p.min_ease:
             stats["rejected_irrelevant"] += 1
             continue
-        scored.append((sc["total"], raw, sc, ease))
+        scored.append((sc["total"], raw, sc, ease, strict_mail))
     scored.sort(key=lambda t: -t[0])  # best first, so max_results keeps the best, not the earliest
-    for _, raw, sc, ease in scored:
+    for _, raw, sc, ease, strict_mail in scored:
         if len(stats["ids"]) >= p.max_results:
             stats["rejected_irrelevant"] += 1  # beyond the per-run cap
             continue
@@ -161,7 +169,7 @@ def process(db: Session, raws: list[RawOpportunity], p: SearchParams, run_id: in
             stats["new"] += 1
         if ease[2] == "email" and sc["geo"] != "restricted" and sc["total"] >= 40:
             opp.recommended_action = "Email your application to the address the company published (see Leads); keep it short and specific"
-        leads.attach_emails(db, opp, raw.description, "listing", now=now)
+        leads.attach_emails(db, opp, raw.description, "listing", now=now, strict=strict_mail)
         db.add(RunOpportunity(run_id=run_id, opportunity_id=opp.id, is_new=is_new, discovered_at=now))
         seen_in_run.add(opp.id)
         stats["ids"].append(opp.id)

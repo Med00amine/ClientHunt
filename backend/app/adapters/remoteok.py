@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 
 from ..textutil import html_to_text
 from ..types import RawOpportunity, SearchParams
-from .base import Adapter, register
+from .base import Adapter, infer_engagement, register
 
 
 @register
@@ -23,6 +23,7 @@ class RemoteOK(Adapter):
                 company_name=j.get("company", ""), description=html_to_text(j.get("description", "")),
                 tags=list(j.get("tags") or []),
                 posted_at=datetime.utcfromtimestamp(int(j["epoch"])) if str(j.get("epoch", "")).isdigit() else None,
+                engagement_type=infer_engagement(j.get("position", ""), html_to_text(j.get("description", ""))),
                 remote_status="remote", location_requirements=j.get("location", "") or "",
                 budget_min=float(lo) if lo else None, budget_max=float(hi) if hi else None,
                 currency="USD" if (lo or hi) else "", rate_type="annual" if (lo or hi) else ""))

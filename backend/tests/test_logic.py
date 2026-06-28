@@ -433,3 +433,54 @@ def test_research_does_not_repeat_title_or_description_as_topic_mentions(db):
     excerpts = [e.excerpt for e in db.scalars(select(Evidence)).all() if e.kind == "fact"]
     assert excerpts.count("Harbor Cloud – AWS migration consultancy") == 1
     assert "We move workloads to AWS for mid-size companies." in excerpts
+
+
+@pytest.mark.parametrize("loc,expected", [
+    # an explicit residency list includes Tunisia only if it names Tunisia, or a region that contains it
+    ("Only: Argentina, Bolivia, Colombia, Dominican Republic, Ecuador, Egypt, Honduras, Mexico, Nicaragua, Panama, Peru, South Africa; Time zones: UTC-8, UTC-3, UTC+2", "restricted"),
+    ("Only: South Africa; Time zones: UTC+2", "restricted"),
+    ("Only: Egypt, Morocco", "restricted"),
+    ("Only: Poland; Time zones: UTC+1", "restricted"),
+    ("Only: Argentina; Time zones: UTC-3", "restricted"),
+    ("Only: Tunisia", "compatible"),
+    ("Only: Egypt, Tunisia, Algeria", "compatible"),
+    ("Only: Africa", "compatible"),
+    ("Only: EMEA; Time zones: UTC+1", "compatible"),
+    ("Only: Germany, France, Europe", "compatible"),
+    ("Worldwide (any time zone)", "worldwide"),
+])
+def test_an_explicit_country_list_includes_tunisia_only_when_it_says_so(loc, expected):
+    assert geo_status(loc) == expected
+
+
+@pytest.mark.parametrize("loc,expected", [
+    ("ONSITE 5 days/week, New York City", "restricted"),
+    ("On-site in Berlin", "restricted"),
+    ("In-person, San Francisco", "restricted"),
+    ("Hybrid (London)", "restricted"),
+    ("Onsite, international team", "restricted"),
+    ("Remote or onsite in Berlin", "unknown"),
+    ("REMOTE (anywhere, EST hours)", "worldwide"),
+])
+def test_a_role_that_needs_you_in_an_office_elsewhere_is_restricted(loc, expected):
+    assert geo_status(loc) == expected
+
+
+@pytest.mark.parametrize("loc,text,expected", [
+    # a generic "Worldwide" field is overridden by a strong residency statement in the text
+    ("Worldwide (any time zone)", "Location:LATAM 100% Remote. Working hours are based on the US Central Time Zone.", "restricted"),
+    ("Tallinn, Harju County, Estonia", "Location: USA & LATAM | Remote Employment Type: Contractor", "restricted"),
+    ("Worldwide", "You must be located in the US to apply.", "restricted"),
+    ("Anywhere in the World", "Candidates must be authorized to work in the US.", "restricted"),
+    # but not when the text only says something looser, or keeps the door open
+    ("Worldwide", "Great perks. Some US only benefits apply, hire from anywhere.", "worldwide"),
+    ("Worldwide (any time zone)", "Location: Remote (worldwide). We are a US company.", "worldwide"),
+    ("Worldwide", "Location: UK / Europe", "worldwide"),
+    ("Worldwide", "Location: US or EMEA, remote", "worldwide"),
+    # looser wording still counts when the location is not stated at all
+    ("", "US only. Send your CV.", "restricted"),
+    ("", "We hire remotely across the world.", "unknown"),
+])
+def test_listing_text_can_overrule_a_generic_location_field(loc, text, expected):
+    from app.scoring import effective_geo
+    assert effective_geo(loc, text) == expected

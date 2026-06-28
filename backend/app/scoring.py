@@ -18,15 +18,18 @@ CORE = {"python", "llm", "rag", "aws", "fastapi", "machine learning", "pytorch",
 HEAVY_MISMATCH = {"java", "php", "c#/.net", "ruby", "go", "rust", "c++", "mobile", "sap/salesforce"}
 RESTRICTED_CAP = 50.0
 NON_ENG_CAP = 30.0
-_NON_ENG = re.compile(r"\b(sales|business development|bd manager|marketing|go-to-market|gtm|account executive|account manager|"
-                      r"recruiter|designer|copywriter|customer success|support specialist|accountant|finance manager|"
-                      r"hr manager|operations manager|product manager|project manager|community manager)\b", re.I)
-_ENG = re.compile(r"\b(engineer|engineers|developer|developers|programmer|architect|devops|sre|scientist|software|"
-                  r"full[- ]?stack|back[- ]?end|front[- ]?end|ml|ai|llm|data|cto|technical|technologist|consultant)\b", re.I)
+_NON_ENG = re.compile(r"\b(sales|business development|bd manager|marketing|marketer|go-to-market|gtm|account executive|account manager|"
+                      r"recruiter|designer|creative|copywriter|writer|editor|translator|interpreter|artist|customer success|"
+                      r"customer support|support specialist|accountant|finance manager|hr manager|operations manager|"
+                      r"product manager|project manager|community manager|nurse|annotation|annotator|trainer|tutor|teacher)\b", re.I)
+# Role words only. Topics such as "AI", "ML" or "data" are NOT role words: "AI Lead Creative" is not an engineering job.
+_ENG = re.compile(r"\b(engineer|engineers|engineering|developer|developers|programmer|architect|devops|sre|scientist|researcher|software|"
+                  r"full[- ]?stack|back[- ]?end|front[- ]?end|cto|technologist)\b", re.I)
 MAX = {"skills": 35, "portfolio": 25, "budget": 15, "info": 10, "remote": 10, "freshness": 5}
 
 _WORLDWIDE = re.compile(r"worldwide|anywhere|global|any\s+location|international|work from anywhere", re.I)
-_COMPATIBLE = re.compile(r"emea|africa|tunisia|europe|\beu\b|\bcet\b", re.I)
+_COMPATIBLE = re.compile(r"emea|africa|tunisia|egypt|morocco|algeria|libya|nigeria|kenya|ghana|senegal|europe|\beu\b|\bcet\b", re.I)
+_ALLOW_REGIONS = {"tunisia", "africa", "north africa", "emea", "mena", "europe", "eu", "worldwide", "anywhere", "global"}
 _RESTRICTED = re.compile(r"\bus(a)?\s*(only|based|residents?|citizens?)|united states|\bu\.s\.|\bus\b|canada|north america|"
                          r"\b(eastern|pacific|central|mountain)\b.*\b(time|tz)\b|\b(est|pst|cst|edt|pdt)\b|"
                          r"americas|\buk\s+only|australia|\bapac\b|must\s+(live|reside|be located)", re.I)
@@ -36,21 +39,82 @@ def now_naive() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
+_COUNTRIES = {n.strip() for n in """usa, us, united states, america, uk, united kingdom, england, scotland, wales, britain, ireland, canada, mexico,
+brazil, argentina, chile, colombia, peru, uruguay, paraguay, bolivia, venezuela, ecuador, costa rica, panama, guatemala, germany, france,
+spain, italy, portugal, netherlands, belgium, luxembourg, switzerland, austria, sweden, norway, denmark, finland, iceland, poland, czechia,
+czech republic, slovakia, hungary, romania, bulgaria, greece, croatia, serbia, slovenia, lithuania, latvia, estonia, ukraine, belarus,
+russia, turkey, cyprus, malta, georgia, armenia, israel, india, pakistan, bangladesh, sri lanka, nepal, china, japan, korea, south korea,
+taiwan, hong kong, singapore, malaysia, indonesia, philippines, vietnam, thailand, australia, new zealand, latam, latin america, americas,
+north america, south america, apac, asia, asia pacific, oceania, saudi arabia, uae, united arab emirates, qatar, kuwait""".split(",")}
+_COUNTRY_PHRASES = ("united states", "united kingdom", "czech republic", "costa rica", "south korea", "hong kong", "new zealand",
+                    "latin america", "north america", "south america", "asia pacific", "saudi arabia", "united arab emirates", "sri lanka")
+_COMPAT_TOKENS = {"emea", "africa", "tunisia", "egypt", "morocco", "algeria", "nigeria", "kenya", "ghana", "europe", "eu", "cet", "worldwide",
+                  "anywhere", "global", "international"}
+
+
+def _only_countries(loc: str) -> bool:
+    """True when the text is just a list of countries/regions (e.g. "UK", "Canada, USA", "LATAM, Argentina") and
+    names none that includes Tunisia (Africa/EMEA/Europe/worldwide). That is a residency restriction."""
+    text = " " + re.sub(r"[()]", " ", loc.lower()) + " "
+    text = re.sub(r"\b(remote|remotely|only|based|in|within|from|across|for|hybrid)\b", " ", text)   # "Remote (UK)" -> "uk"
+    for ph in _COUNTRY_PHRASES:
+        text = text.replace(ph, ph.replace(" ", "_"))
+    parts = [p.strip().replace("_", " ") for p in re.split(r"[,;/|&]| and | or ", text) if p.strip()]
+    if not parts:
+        return False
+    words = [w for p in parts for w in ([p] if p in _COUNTRIES else p.split())]
+    if any(w in _COMPAT_TOKENS for w in words):
+        return False
+    return all(p in _COUNTRIES for p in parts)
+
+
+# Residency statements in the listing TEXT. A structured location field is often generic ("Worldwide") while the text says
+# "Location: LATAM 100% Remote" or "must be located in the US", so these STRONG statements override a field that is not restricted.
+_REGION = (r"latam|latin america|north america|(?:the )?(?:us|u\.s\.|usa|united states)|uk|canada|brazil|mexico|argentina|colombia|chile|peru")
+_TEXT_STRONG = re.compile(
+    r"\b(must|need to|should) (be (located|based|living|resident)|reside|live) in (the )?(us|u\.s\.|usa|united states|uk|united kingdom|eu|canada)\b|"
+    r"\bauthori[sz]ed to work in (the )?(us|u\.s\.|usa|united states|uk|united kingdom|eu|canada)\b|"
+    r"\b(us|u\.s\.|uk|eu) work authori[sz]ation (is )?required\b|"
+    # "Location: LATAM 100% Remote", "Location: USA & LATAM | Remote" (but not "Location: UK / Europe" or "Location: US or EMEA")
+    r"\blocation\s*:\s*(" + _REGION + r")\b(?!\s*(,|/|&|and|or)\s*(europe|emea|africa|worldwide|anywhere|tunisia))", re.I)
+# Looser wording, trusted only when the location field says nothing ("US only benefits" must not hide a worldwide role).
+_TEXT_RESTRICTION = re.compile(
+    r"\b(us|u\.s\.|usa|united states|uk|u\.k\.|eu|canada)[ -]?(only|based candidates|residents only|citizens only)\b|"
+    r"\b(us|u\.s\.|uk|eu) work authori[sz]ation (is )?required\b|\bremote \((us|u\.s\.|usa)[ /,)]", re.I)
+
+
+def effective_geo(location: str, description: str = "") -> str:
+    """geo_status(location), corrected by what the listing text says: a strong residency statement makes a listing
+    restricted whatever the field says, and looser wording does so only when the location is not stated."""
+    g = geo_status(location)
+    if g != "restricted" and description:
+        head = description[:3500]
+        if _TEXT_STRONG.search(head) or (g == "unknown" and _TEXT_RESTRICTION.search(head)):
+            return "restricted"
+    return g
+
+
 def geo_status(location: str) -> str:
     """worldwide | compatible | restricted | unknown"""
     loc = (location or "").strip()
     if not loc:
         return "unknown"
+    if re.match(r"\s*(on[- ]?site|in[- ]person|hybrid)\b", loc, re.I):
+        return "restricted"      # a physical presence somewhere else is required (a role that says "Remote or onsite ..." starts with Remote)
     if _WORLDWIDE.search(loc):
         return "worldwide"
     if loc.lower().startswith("time zones:"):  # Tunisia is UTC+1 (no DST)
         return "compatible" if re.search(r"UTC\+1(?!\d|\.)", loc) else "restricted"
-    if re.match(r"only:", loc, re.I) and not re.search(r"tunisia|africa|egypt|morocco|algeria", loc, re.I):
-        return "restricted"  # explicit country allow-list that does not include Tunisia/Africa
+    m = re.match(r"only:\s*([^;]*)", loc, re.I)
+    if m:  # an explicit residency allow-list: it includes Tunisia only if it names Tunisia or a region that contains it
+        items = {i.strip().lower() for i in m.group(1).split(",") if i.strip()}
+        return "compatible" if items & _ALLOW_REGIONS else "restricted"   # "South Africa" or "Egypt" alone do not include Tunisia
     if _RESTRICTED.search(loc) and not _COMPATIBLE.search(loc):
         return "restricted"
     if _COMPATIBLE.search(loc):
         return "compatible"
+    if _only_countries(loc):
+        return "restricted"
     return "unknown"
 
 
@@ -146,7 +210,7 @@ def score(op: RawOpportunity, required: list[str] | None = None, portfolio: list
 
     # --- remote & schedule (10)
     remote_pts = 0.0
-    geo = geo_status(op.location_requirements)
+    geo = effective_geo(op.location_requirements, op.description)
     if op.remote_status == "remote":
         remote_pts += 6
     elif op.remote_status == "unknown":

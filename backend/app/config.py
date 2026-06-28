@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     freelancer_oauth_token: str = ""
     upwork_api_key: str = ""
 
+    # Freelancer.com public projects API (live view only: its terms forbid storing the data)
+    freelancer_api_url: str = "https://www.freelancer.com/api/projects/0.1/projects/active/"
+
     http_user_agent: str = "ClientHuntBot/0.1 (personal job-search tool; contact: owner)"
     run_worker_enabled: bool = True
     data_retention_days: int = 365

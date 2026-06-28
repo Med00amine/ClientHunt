@@ -6,15 +6,17 @@ from datetime import datetime, timedelta, timezone
 
 from ..textutil import html_to_text
 from ..types import RawOpportunity, SearchParams
-from .base import Adapter, AdapterError, register
+from .base import Adapter, AdapterError, origin_if_company_site, register
+
+# same template as services.leads.JOB_SEEKER_POST (kept here to avoid importing services into adapters)
+JOB_SEEKER_POST = re.compile(r"(willing to relocate\s*:|r[ée]sum[ée]\s*/\s*cv\s*:|\bseeking work\b|\bavailable for (hire|freelance work)\b)", re.I)
+
+# same pattern as services.leads.CLOSED_POST (kept here to avoid importing services into adapters)
+CLOSED_POST = re.compile(r"\bclosed now\b|\bnow closed\b|\bno longer (hiring|accepting|taking)\b|"
+                         r"\b(position|role|job)s? (has been |have been |is |are |was |were )?(filled|closed)\b|[\[(|]\s*closed\s*(?:[\])|:\-–—]|$)|^\s*closed\b", re.I)
 
 BASE = "https://hn.algolia.com/api/v1"
 _URL = re.compile(r"https?://[^\s<>\"')]+")
-_JOB_BOARDS = ("linkedin.com", "greenhouse.io", "lever.co", "ashbyhq.com", "workable.com", "ycombinator.com",
-               "indeed.com", "wellfound.com", "angel.co", "bamboohr.com", "smartrecruiters.com", "notion.site",
-               "github.com", "twitter.com", "x.com", "forms.gle", "docs.google.com", "gem.com", "rippling.com",
-               "recruitee.com", "breezy.hr", "teamtailor.com", "jobvite.com", "personio", "join.com", "notion.so",
-               "ycombinator.com", "linkedin.com")
 
 
 @register
@@ -48,8 +50,10 @@ class HNHiring(Adapter):
 
     def _to_raw(self, h: dict) -> RawOpportunity | None:
         text = html_to_text(h.get("comment_text") or "")
-        if not text:
-            return None
+        if not text or JOB_SEEKER_POST.search(text):
+            return None    # empty, or a person advertising themselves (not a client): never collected
+        if CLOSED_POST.search(text[:300]):
+            return None    # the poster edited the header to say the position is closed: not a lead
         first = text.split("\n", 1)[0]
         company = first.split("|")[0].strip()[:120]
         if len(company) > 80 or re.match(r"^(location|remote|company|hiring|about)\s*:", company, re.I):
@@ -58,8 +62,7 @@ class HNHiring(Adapter):
             if m:
                 company = m.group(1).split("|")[0].strip()[:80]
         urls = [u.rstrip(".,;") for u in _URL.findall(htmllib.unescape(h.get("comment_text") or ""))]
-        urls = [u for u in urls if not any(b in u.split("/")[2].lower() for b in _JOB_BOARDS)]
-        urls = ["/".join(u.split("/")[:3]) for u in urls]  # origin only: the company site, not a job page
+        urls = [o for o in (origin_if_company_site(u) for u in urls) if o]  # origin only: the company site, not a job page
         lower = text.lower()
         et = "contract" if re.search(r"\b(contract|contractor|freelance)\b", lower) else "unknown"
         if re.search(r"\bpart[- ]time\b", lower):
@@ -76,13 +79,20 @@ class HNHiring(Adapter):
 def _remote(first: str, lower: str) -> str:
     if re.search(r"\b(hybrid)\b", first):
         return "hybrid"
-    if re.search(r"\b(onsite|on-site|on site)\b", first) and "remote" not in first:
+    if re.search(r"\b(onsite|on-site|on site|in[- ]person)\b", first) and "remote" not in first:
         return "onsite"
     return "remote" if re.search(r"\bremote\b", lower) else "unknown"
 
 
+_ROLE_WORDS = re.compile(r"\b(engineer|engineers|developer|developers|manager|scientist|designer|analyst|lead|head|director|intern|"
+                         r"architect|researcher|specialist|consultant|founder|cto|sre|devops|full[- ]?stack|back[- ]?end|front[- ]?end)\b", re.I)
+_PLACE_HINT = re.compile(r"remote|worldwide|global|onsite|on-site|in[- ]person|hybrid|anywhere|time ?zone|"
+                         r"\b(us|usa|uk|eu|emea|apac|latam|cet|est|pst|gmt|utc)\b|[A-Z][a-z]+,\s*[A-Z]{2}\b", re.I)
+
+
 def _loc(first: str) -> str:
-    """Location is the header segment mentioning 'remote' or a place; kept verbatim (untrusted text)."""
+    """Location is the header segment(s) that look like a place or a work arrangement; kept verbatim (untrusted text).
+    A segment that reads like a job title ("AI Engineer (£30/hr)") is never a location."""
     parts = [x.strip() for x in first.split("|")[1:]]
-    seg = [x for x in parts if re.search(r"remote|worldwide|global|onsite|hybrid|\b(us|usa|uk|eu|europe|canada|emea)\b|time ?zone|\b[A-Z]{2,4}\b", x, re.I)]
+    seg = [x for x in parts if _PLACE_HINT.search(x) and not _ROLE_WORDS.search(x)]
     return "; ".join(seg)[:200]

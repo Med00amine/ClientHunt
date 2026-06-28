@@ -1,5 +1,4 @@
 """Sources that need authorisation (or have no permitted API) report that honestly."""
-from ..config import get_settings
 from ..types import RawOpportunity, SearchParams
 from .base import Adapter, AdapterUnavailable, register
 
@@ -16,10 +15,9 @@ class Upwork(Adapter):
 
 @register
 class Freelancer(Adapter):
-    key, name = "freelancer", "Freelancer.com (official API)"
+    key, name = "freelancer", "Freelancer.com (stored in runs)"
 
     def fetch(self, params: SearchParams) -> list[RawOpportunity]:
-        if not get_settings().freelancer_oauth_token:
-            raise AdapterUnavailable("No FREELANCER_OAUTH_TOKEN configured. The API endpoints/terms were not "
-                                     "verified from official docs; adapter intentionally not implemented.")
-        raise AdapterUnavailable("Freelancer.com adapter not implemented: official docs could not be verified.")
+        raise AdapterUnavailable(
+            "Freelancer.com's API terms say 'You may not copy or store any Data', so its projects are not stored in "
+            "runs or exports. Use the Live projects tab (shown live, never saved) and bid on Freelancer.com yourself.")

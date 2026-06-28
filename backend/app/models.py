@@ -136,6 +136,8 @@ class Opportunity(Base):
     ease_score: Mapped[float] = mapped_column(Float, default=0.0)
     ease_signals: Mapped[list] = mapped_column(JSON, default=list)
     apply_method: Mapped[str] = mapped_column(String(10), default="unknown")  # email | link | unknown
+    # free-form extras; for prospects: category, offer, evidence_url, evidence_quote, pages, origin
+    meta: Mapped[dict] = mapped_column(JSON, default=dict)
     company: Mapped[Company | None] = relationship()
 
 

@@ -21,10 +21,13 @@ from .models import (Application, BusinessContact, Company, Conversation, Eviden
                      OpportunityHistory, ProposalDraft, ResearchRun, RunOpportunity, SearchProfile, Source,
                      Suppression, UsageEvent, utcnow)
 from .portfolio import load_portfolio, save_portfolio
-from .scoring import geo_status, recommend, score
+from .scoring import effective_geo, recommend, score
 from .services import alerts as alerts_svc
+from .services import live as live_svc
 from .services import contacts as contacts_svc
-from .services import drafting, exporter, pipeline, research, runner, usage
+from .services import leads as leads_svc
+from .services import prospects as prospects_svc
+from .services import drafting, exporter, pipeline, rescoring, research, runner, usage
 from .services.backup import backup_database
 from .services.safefetch import SafeFetcher
 from .textutil import canonical_url
@@ -82,12 +85,12 @@ def overview(db: Session = Depends(get_db)):
     act = float(c(select(func.sum(UsageEvent.cost_usd)).where(UsageEvent.estimated.is_(False))))
     apps = lambda *st: c(select(func.count()).select_from(Application).where(Application.status.in_(st)))  # noqa: E731
     return {
-        "opportunities_total": c(select(func.count()).select_from(Opportunity)),
+        "opportunities_total": c(select(func.count()).select_from(Opportunity).where(Opportunity.source_key != "prospect")),
         "new_since_previous_run": last.new_count if last else 0,
-        "relevant": c(select(func.count()).select_from(Opportunity).where(Opportunity.fit_score >= 40,
+        "relevant": c(select(func.count()).select_from(Opportunity).where(Opportunity.fit_score >= 40, Opportunity.source_key != "prospect",
                                                                           Opportunity.review_status != "excluded")),
         "awaiting_review": c(select(func.count()).select_from(Opportunity).where(
-            Opportunity.review_status == "new", Opportunity.fit_score >= 40)),
+            Opportunity.review_status == "new", Opportunity.fit_score >= 40, Opportunity.source_key != "prospect")),
         "proposals_drafted": c(select(func.count(func.distinct(ProposalDraft.opportunity_id)))),
         "applications_submitted": c(select(func.count()).select_from(Application)),
         "replies": apps("replied"), "interviews": apps("interview"), "won": apps("won"), "lost": apps("lost"),
@@ -99,9 +102,11 @@ def overview(db: Session = Depends(get_db)):
         "contacts_total": c(select(func.count()).select_from(BusinessContact)),
         "emails_found": c(select(func.count()).select_from(BusinessContact).where(
             BusinessContact.source_url != "", BusinessContact.suppressed.is_(False),
-            BusinessContact.outreach_eligibility != "not_eligible")),
+            BusinessContact.outreach_eligibility != "not_eligible",
+            BusinessContact.contact_purpose.notin_(leads_svc.PITCH_PURPOSES))),
         "apply_by_email_leads": c(select(func.count()).select_from(Opportunity).where(
-            Opportunity.apply_method == "email", Opportunity.review_status != "excluded")),
+            Opportunity.apply_method == "email", Opportunity.review_status != "excluded", Opportunity.source_key != "prospect")),
+        "prospects": c(select(func.count()).select_from(Opportunity).where(Opportunity.source_key == "prospect")),
         "llm_enabled": s.llm_enabled and bool(s.anthropic_api_key),
         "auth_enabled": auth.auth_enabled(),
     }
@@ -293,6 +298,32 @@ def download_all(kind: str = Query("", pattern="^(|opportunities|emails)$"), run
                         filename=f"clienthunt_csvs_{label}{kind + '_' if kind else ''}{stamp}.zip")
 
 
+@router.get("/export/all")
+def export_all_in_one(format: str = Query("xlsx", pattern="^(xlsx|csv)$"), include_excluded: bool = False,
+                      db: Session = Depends(get_db)):
+    """EVERYTHING from ALL runs in ONE file (Excel workbook, or one flat CSV). Built on demand from the database,
+    so it is always current and does not add files to exports/."""
+    data = exporter.build_combined(db, include_excluded)
+    c = data["counts"]
+    if not (c["runs"] or c["opportunities"] or c["prospects"]):
+        raise HTTPException(404, "Nothing to export yet. Run a research or add a prospect first.")
+    if format == "csv" and not (c["runs"] or c["opportunities"]):
+        raise HTTPException(404, "The single CSV lists opportunities and there are none yet. The Excel file also holds your prospects.")
+    stamp = utcnow().strftime("%Y-%m-%d_%H-%M-%S")
+    if format == "csv":
+        body, media = exporter.build_combined_csv(data), "text/csv; charset=utf-8"
+    else:
+        body, media = exporter.build_xlsx(data), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    return Response(body, media_type=media, headers={
+        "Content-Disposition": f'attachment; filename="clienthunt_all_runs_{stamp}.{format}"',
+        "Cache-Control": "no-store", "X-Counts": ",".join(f"{k}={v}" for k, v in data["counts"].items())})
+
+
+@router.get("/export/all/counts")
+def export_all_counts(db: Session = Depends(get_db)):
+    return exporter.build_combined(db)["counts"]
+
+
 @router.post("/exports/contacts")
 def export_contacts(db: Session = Depends(get_db)):
     return export_out(exporter.export_contacts(db))
@@ -345,6 +376,8 @@ def list_opps(db: Session = Depends(get_db), q: str = "", source: str = "", min_
                               Opportunity.description.ilike(like)))
     if source:
         stmt = stmt.where(Opportunity.source_key == source)
+    else:
+        stmt = stmt.where(Opportunity.source_key != "prospect")      # prospects have their own tab
     if review_status:
         stmt = stmt.where(Opportunity.review_status == review_status)
     elif not show_excluded:
@@ -457,6 +490,9 @@ def research_opp(oid: int, db: Session = Depends(get_db)):
         raise HTTPException(400, "No company is named in this listing")
     if not o.company.website:
         raise HTTPException(400, "No official website known. Add it (from the company's own site) and retry")
+    if o.source_key == prospects_svc.SOURCE:    # a prospect is read in pitch mode, never as a job listing
+        prospects_svc.research_prospect(db, o, SafeFetcher())
+        return {"evidence_added": 0, "status": o.company.research_status, "error": o.company.last_error}
     n = research.research_company(db, o.company, o, SafeFetcher())
     return {"evidence_added": n, "status": o.company.research_status, "error": o.company.last_error}
 
@@ -582,7 +618,7 @@ def list_apps(db: Session = Depends(get_db)):
     out = []
     for a in db.scalars(select(Application).order_by(Application.id.desc())):
         o = db.get(Opportunity, a.opportunity_id)
-        out.append(app_out(db, a) | {"title": o.title, "company_name": o.company_name, "url": o.original_url})
+        out.append(app_out(db, a) | {"title": o.title, "company_name": o.company_name, "url": o.original_url, "source": o.source_key})
     return out
 
 
@@ -621,6 +657,7 @@ def contact_out(c: BusinessContact) -> dict:
 def leads(db: Session = Depends(get_db), has_email: bool = True, hide_restricted: bool = True, min_ease: float = 0,
           min_fit: float = 0, q: str = "", sort: str = "best", limit: int = Query(300, le=1000)):
     stmt = select(Opportunity).where(Opportunity.review_status != "excluded", Opportunity.ease_score >= min_ease,
+                                     Opportunity.source_key != "prospect", Opportunity.listing_status != "closed",
                                      func.coalesce(Opportunity.score_override, Opportunity.fit_score) >= min_fit)
     if q:
         like = f"%{q}%"
@@ -642,7 +679,7 @@ def leads(db: Session = Depends(get_db), has_email: bool = True, hide_restricted
         cs = by_opp.get(o.id, [])
         if has_email and not cs:
             continue
-        if hide_restricted and geo_status(o.location_requirements) == "restricted":
+        if hide_restricted and effective_geo(o.location_requirements, o.description) == "restricted":
             continue
         d = opp_out(o)
         d["contacts"] = [contact_out(c) for c in sorted(cs, key=lambda c: (c.outreach_eligibility != "eligible", c.id))]
@@ -740,6 +777,19 @@ def suppress(body: schemas.SuppressIn, db: Session = Depends(get_db)):
     return {"contacts_updated": contacts_svc.add_suppression(db, body.email, body.domain, body.reason)}
 
 
+# ---------------------------------------------------------------- live view (never stored)
+@router.get("/live/freelancer")
+def live_freelancer(q: str = Query("", max_length=300), min_usd: float = Query(0, ge=0), min_hourly_usd: float = Query(0, ge=0), max_bids: int = Query(0, ge=0, le=1000),
+                    kind: str = Query("", pattern="^(|fixed|hourly)$"), sort: str = Query("best", pattern="^(best|newest|fewest_bids)$"),
+                    limit: int = Query(40, ge=1, le=100)):
+    """Open Freelancer.com projects, fetched live. Nothing is written to the database, exports or disk."""
+    queries = [x for x in (t.strip() for t in q.split(",")) if x] or None
+    try:
+        return live_svc.search_projects(queries, min_usd, max_bids, kind, sort, limit, min_hourly_usd=min_hourly_usd)
+    except live_svc.LiveSourceError as e:
+        raise HTTPException(502, str(e))
+
+
 # ---------------------------------------------------------------- portfolio / usage / admin
 @router.get("/portfolio")
 def get_portfolio():
@@ -761,22 +811,8 @@ def toggle_portfolio(pid: str, body: schemas.PortfolioToggle):
 
 @router.post("/opportunities/rescore")
 def rescore(db: Session = Depends(get_db)):
-    """Recompute scores after portfolio verification changes."""
-    pf = load_portfolio()
-    n = 0
-    for o in db.scalars(select(Opportunity)):
-        raw = RawOpportunity(source_key=o.source_key, url=o.original_url, title=o.title, company_name=o.company_name,
-                             company_website=o.company.website if o.company else "", description=o.description,
-                             posted_at=o.posted_at, remote_status=o.remote_status,
-                             location_requirements=o.location_requirements, budget_min=o.budget_min,
-                             budget_max=o.budget_max, currency=o.currency, rate_type=o.rate_type)
-        sc = score(raw, None, pf)
-        o.fit_score, o.fit_explanation, o.portfolio_evidence = sc["total"], sc["explanation"], sc["portfolio_evidence"]
-        o.score_components = {"points": sc["components"], "max": sc["max"], "unknown": sc["unknown"], "coverage": sc["data_coverage"]}
-        o.recommended_action = recommend(o.listing_status, sc["total"], sc["geo"], any(e["verified"] for e in sc["portfolio_evidence"]))
-        n += 1
-    db.commit()
-    return {"rescored": n}
+    """Recompute scores after portfolio verification (or rule) changes."""
+    return {"rescored": rescoring.rescore_all(db)}
 
 
 @router.get("/usage")
