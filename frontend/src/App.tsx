@@ -7,9 +7,12 @@ import Runs from "./pages/Runs";
 import Pipeline from "./pages/Pipeline";
 import Contacts from "./pages/Contacts";
 import Leads from "./pages/Leads";
+import LiveProjects from "./pages/LiveProjects";
 import Settings from "./pages/Settings";
+import Prospects from "./pages/Prospects";
+import Strategy from "./pages/Strategy";
 
-const TABS = ["Overview", "Research", "Leads (emails)", "Opportunities", "Runs & exports", "Pipeline", "Contacts", "Sources & settings"] as const;
+const TABS = ["Overview", "Strategy", "Research", "Leads (emails)", "Prospects", "Live projects", "Opportunities", "Runs & exports", "Pipeline", "Contacts", "Sources & settings"] as const;
 type Tab = (typeof TABS)[number];
 
 function Login({ onDone }: { onDone: () => void }) {
@@ -36,6 +39,7 @@ export default function App() {
   const [tab, setTab] = useState<Tab>("Overview");
   const [authed, setAuthed] = useState<boolean | null>(null);
   const [openOpp, setOpenOpp] = useState<number | null>(null);
+  const [openProspect, setOpenProspect] = useState<number | null>(null);
 
   const check = () => api("/auth/me").then((m) => setAuthed(m.authenticated)).catch(() => setAuthed(true));
   useEffect(() => { setUnauthorizedHandler(() => setAuthed(false)); check(); }, []);
@@ -43,7 +47,7 @@ export default function App() {
   if (authed === null) return <main><p className="muted">Loading…</p></main>;
   if (!authed) return <Login onDone={check} />;
 
-  const go = (t: Tab, oppId?: number) => { setTab(t); if (oppId) setOpenOpp(oppId); };
+  const go = (t: Tab, id?: number) => { setTab(t); if (id) (t === "Prospects" ? setOpenProspect : setOpenOpp)(id); };
   return (
     <>
       <header className="top">
@@ -57,11 +61,14 @@ export default function App() {
       </header>
       <main>
         {tab === "Overview" && <Overview go={go} />}
+        {tab === "Strategy" && <Strategy go={go} />}
         {tab === "Research" && <Research go={go} />}
         {tab === "Leads (emails)" && <Leads openOpp={(id) => go("Opportunities", id)} />}
+        {tab === "Prospects" && <Prospects openId={openProspect} setOpenId={setOpenProspect} />}
+        {tab === "Live projects" && <LiveProjects />}
         {tab === "Opportunities" && <Opportunities openId={openOpp} setOpenId={setOpenOpp} />}
         {tab === "Runs & exports" && <Runs go={go} />}
-        {tab === "Pipeline" && <Pipeline openOpp={(id) => go("Opportunities", id)} />}
+        {tab === "Pipeline" && <Pipeline openOpp={(id, pitch) => go(pitch ? "Prospects" : "Opportunities", id)} />}
         {tab === "Contacts" && <Contacts />}
         {tab === "Sources & settings" && <Settings />}
       </main>

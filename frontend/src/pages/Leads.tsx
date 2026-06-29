@@ -1,7 +1,9 @@
+import { ExtLink } from "../components";
 import { useState } from "react";
 import { api } from "../api";
 import { Async, useLoad } from "../hooks";
-import { fmtDate } from "../format";
+import { fmtDate, safeUrl } from "../format";
+import OneFile from "./OneFile";
 
 const ELIG: Record<string, string> = { eligible: "ok", review_required: "warn", not_eligible: "bad", unknown: "" };
 
@@ -34,12 +36,12 @@ export default function Leads({ openOpp }: { openOpp: (id: number) => void }) {
         These are companies that posted a job or project and published an address to reply to (or a careers/jobs mailbox on their own website).
         Sorted by fit for you plus how easy it looks to reach them. Every email shows where it was found and when. Emails are never guessed.
       </p>
+      <OneFile title="Download the leads (and everything else) in ONE file" />
       <div className="panel" style={{ marginBottom: 12 }}>
         <div className="row">
-          <button className="primary" style={{ fontSize: 16, padding: "10px 18px" }} onClick={download} disabled={busy}>⬇ Download all emails (CSV)</button>
+          <button onClick={download} disabled={busy}>⬇ Only the emails (CSV)</button>
           <button onClick={() => copy(st.data?.emails ?? [])} disabled={!st.data?.emails?.length}>Copy the {st.data?.emails?.length ?? 0} emails shown</button>
-          <a className="btn" href="/api/exports/download-all">⬇ All CSVs from every run (ZIP)</a>
-          <span className="muted">The CSV also has the company, job link, where the email was found, and the hiring signals. Open it in Excel or Google Sheets.</span>
+          <span className="muted">The Excel file has a Leads sheet with the same rows, plus where each email was found.</span>
         </div>
         {msg && <div className={`alert ${msg.kind}`} role="status">{msg.text}</div>}
       </div>
@@ -63,11 +65,11 @@ export default function Leads({ openOpp }: { openOpp: (id: number) => void }) {
                 <td>{o.contacts.length === 0 ? <span className="muted">no email published</span> : o.contacts.map((c: any) => (
                   <div key={c.id} style={{ marginBottom: 6 }}>
                     <b>{c.email}</b> <span className={`chip ${ELIG[c.eligibility]}`} title={c.basis}>{c.eligibility.replace("_", " ")}</span>
-                    <div className="muted">{c.type} · <a href={c.source_url} target="_blank" rel="noreferrer">found here</a> {fmtDate(c.found_at)}</div>
+                    <div className="muted">{c.type} · <ExtLink href={c.source_url}>found here</ExtLink> {fmtDate(c.found_at)}</div>
                     {c.context && <div className="muted" style={{ fontStyle: "italic" }}>“…{c.context.slice(0, 140)}…”</div>}
                   </div>))}</td>
                 <td>{(o.ease_signals ?? []).map((s: string) => <div key={s} className="muted">• {s}</div>)}</td>
-                <td><a href={o.url} target="_blank" rel="noreferrer">Open ↗</a></td>
+                <td><ExtLink href={o.url}>Open ↗</ExtLink></td>
               </tr>))}
           </tbody></table></div>
         )}

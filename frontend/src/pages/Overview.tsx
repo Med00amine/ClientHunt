@@ -2,6 +2,7 @@ import { api } from "../api";
 import { Async, useLoad } from "../hooks";
 import { fmtDate, fmtUsd } from "../format";
 import RunSummary from "./RunSummary";
+import OneFile from "./OneFile";
 
 export default function Overview({ go }: { go: (t: any) => void }) {
   const st = useLoad(() => api("/overview"), [], 10000);
@@ -11,7 +12,7 @@ export default function Overview({ go }: { go: (t: any) => void }) {
       <Async state={st}>
         {(o) => {
           const cards: [string, number | string][] = [
-            ["Hiring emails found", o.emails_found ?? 0], ["Apply-by-email leads", o.apply_by_email_leads ?? 0], ["Opportunities discovered", o.opportunities_total], ["New since previous run", o.new_since_previous_run],
+            ["Hiring emails found", o.emails_found ?? 0], ["Apply-by-email leads", o.apply_by_email_leads ?? 0], ["Prospects you track", o.prospects ?? 0], ["Opportunities discovered", o.opportunities_total], ["New since previous run", o.new_since_previous_run],
             ["Relevant (score ≥ 40)", o.relevant], ["Awaiting review", o.awaiting_review],
             ["Proposals drafted", o.proposals_drafted], ["Applications submitted", o.applications_submitted],
             ["Replies", o.replies], ["Interviews", o.interviews], ["Contracts won", o.won], ["Contracts lost", o.lost],
@@ -24,6 +25,8 @@ export default function Overview({ go }: { go: (t: any) => void }) {
               {o.opportunities_total === 0 && (
                 <div className="empty">No opportunities yet. Go to <a href="#" onClick={(e) => { e.preventDefault(); go("Research"); }}>Research</a> and click <b>Run Research</b>. Nothing on this page is sample data.</div>
               )}
+              <div className="panel" style={{ marginBottom: 12 }}>What should I do today? Open <a href="#" onClick={(e) => { e.preventDefault(); go("Strategy"); }}>Strategy</a>: the leads to write to, the follow-ups due, the prospects to read, and the plan behind them.</div>
+              <OneFile title="Download everything from all runs in ONE file" />
               <div className="grid" style={{ marginTop: 12 }}>
                 {cards.map(([l, n]) => (<div className="card" key={l}><div className="n">{n}</div><div className="l">{l}</div></div>))}
               </div>

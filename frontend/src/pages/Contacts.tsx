@@ -1,6 +1,8 @@
+import { ExtLink } from "../components";
 import { useState } from "react";
 import { api } from "../api";
 import { Async, useLoad } from "../hooks";
+import { safeUrl } from "../format";
 
 export default function Contacts() {
   const [q, setQ] = useState("");
@@ -41,7 +43,7 @@ export default function Contacts() {
           <p className="muted">{d.total} contacts · {Object.entries(d.by_eligibility).map(([k, v]) => `${k}: ${v}`).join(" · ")}</p>
           <div className="scroll"><table><thead><tr><th>Email</th><th>Name</th><th>Company</th><th>Provenance</th><th>Eligibility</th><th></th></tr></thead><tbody>
             {d.items.map((c: any) => (<tr key={c.id}><td>{c.email} {c.is_generic && <span className="chip">generic</span>}</td><td>{c.name}</td><td>{c.company_name}</td>
-              <td>{c.provenance_missing ? <span className="chip bad">source missing</span> : <a href={c.source_url} target="_blank" rel="noreferrer">source</a>}</td>
+              <td>{c.provenance_missing ? <span className="chip bad">source missing</span> : <ExtLink href={c.source_url}>source</ExtLink>}</td>
               <td><span className="chip">{c.outreach_eligibility}</span>{c.suppressed && <span className="chip bad">suppressed</span>}</td>
               <td><button onClick={() => setEligibility(c.id)} disabled={c.suppressed || c.provenance_missing} title={c.provenance_missing ? "Record a source URL first" : ""}>Mark eligible</button> <button className="danger" onClick={() => suppress(c.email)}>Suppress</button></td></tr>))}
           </tbody></table></div></>)}

@@ -34,22 +34,28 @@ export default function RunSummary({ run, onChange }: { run: any; onChange?: () 
       {(run.errors ?? []).map((e: string, i: number) => <div className="alert error" key={i}>{e}</div>)}
       {(run.incomplete_notes ?? []).map((e: string, i: number) => <div className="alert warn" key={i}>Incomplete: {e}</div>)}
       {(run.info_notes ?? []).map((e: string, i: number) => <div className="alert" key={i}>{e}</div>)}
-      <h3>CSV export</h3>
-      {run.export_status === "failed" && <div className="alert error">The export failed. <button onClick={() => act(`/runs/${run.id}/export`)}>Retry export</button></div>}
-      {latest && latest.status === "ok" ? (
-        <p>
-          <a href={latest.download_url}>⬇ {latest.filename}</a> · {latest.row_count} rows · created {fmtDate(latest.created_at)}
-          {latest.run_status !== "completed" && <span className="chip warn">run was {latest.run_status}</span>}
-        </p>
-      ) : !active && run.status !== "failed" ? <p className="muted">No export yet.</p> : null}
-      {emailEx && (
-        <p data-testid="emails-export">
-          <a href={emailEx.download_url}><b>⬇ {emailEx.filename}</b></a> · {emailEx.row_count} emails (company-published, with source link) · created {fmtDate(emailEx.created_at)}
-        </p>
+      {run.export_status === "failed" && <div className="alert error">The export of this run failed. <button onClick={() => act(`/runs/${run.id}/export`)}>Retry export</button></div>}
+      {!active && run.status !== "failed" && !latest && run.export_status !== "failed" && (
+        <p className="muted">No files yet. <button onClick={() => act(`/runs/${run.id}/export`)}>Create this run's CSV files</button></p>
       )}
-      {ex.length > 0 && emailEx && <p><a className="btn" href={`/api/exports/download-all?run_id=${run.id}`}>⬇ Download both CSVs of this run (ZIP)</a></p>}
-      {!active && run.status !== "failed" && <button onClick={() => act(`/runs/${run.id}/export`)}>Export CSV</button>}
       {run.status === "failed" && <p className="muted">No CSV is produced for a failed run.</p>}
+      {(latest || emailEx) && (
+        <details data-testid="run-files">
+          <summary>Files of this run ({(latest ? 1 : 0) + (emailEx ? 1 : 0)} CSV)</summary>
+          {latest && latest.status === "ok" && (
+            <p>
+              <a href={latest.download_url}>⬇ {latest.filename}</a> · {latest.row_count} rows · created {fmtDate(latest.created_at)}
+              {latest.run_status !== "completed" && <span className="chip warn">run was {latest.run_status}</span>}
+            </p>
+          )}
+          {emailEx && (
+            <p data-testid="emails-export">
+              <a href={emailEx.download_url}><b>⬇ {emailEx.filename}</b></a> · {emailEx.row_count} emails (company-published, with source link) · created {fmtDate(emailEx.created_at)}
+            </p>
+          )}
+          {ex.length > 0 && emailEx && <p><a className="btn" href={`/api/exports/download-all?run_id=${run.id}`}>⬇ Download both CSVs of this run (ZIP)</a></p>}
+        </details>
+      )}
     </div>
   );
 }

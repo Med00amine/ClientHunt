@@ -1,7 +1,9 @@
+import { ExtLink } from "../components";
 import { useState } from "react";
 import { api } from "../api";
 import { Async, useLoad } from "../hooks";
-import { fmtBudget, fmtDate, fmtUsd } from "../format";
+import { fmtBudget, fmtDate } from "../format";
+import { Draft, EvidenceList, useActions } from "./shared";
 
 export default function Opportunities({ openId, setOpenId }: { openId: number | null; setOpenId: (id: number | null) => void }) {
   const [f, setF] = useState({ q: "", source: "", min_score: 0, sort: "score", show_excluded: false });
@@ -30,7 +32,7 @@ export default function Opportunities({ openId, setOpenId }: { openId: number | 
                 <td>{o.title.slice(0, 90)} {o.review_status !== "new" && <span className="chip">{o.review_status}</span>}</td><td>{o.source}</td><td>{o.company_name || <span className="muted">unknown</span>}</td>
                 <td>{fmtBudget(o)}</td><td>{o.posted_at ? new Date(o.posted_at).toLocaleDateString() : "—"}</td><td>{o.location_requirements.slice(0, 40) || "unknown"}</td>
                 <td>{o.recommended_action}</td><td>{o.research_status}</td>
-                <td><a href={o.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>Open ↗</a></td></tr>))}
+                <td><ExtLink href={o.url} onClick={(e) => e.stopPropagation()}>Open ↗</ExtLink></td></tr>))}
           </tbody></table></div></>)}
       </Async>
       {openId && <Detail id={openId} close={() => { setOpenId(null); list.reload(true); }} />}
@@ -40,22 +42,15 @@ export default function Opportunities({ openId, setOpenId }: { openId: number | 
 
 function Detail({ id, close }: { id: number; close: () => void }) {
   const st = useLoad(() => api(`/opportunities/${id}`), [id]);
-  const [msg, setMsg] = useState<{ kind: string; text: string } | null>(null);
   const [site, setSite] = useState("");
-  const [busy, setBusy] = useState(false);
-  const run = async (fn: () => Promise<any>, ok?: string) => {
-    setBusy(true); setMsg(null);
-    try { const r = await fn(); if (ok) setMsg({ kind: "ok", text: ok }); st.reload(true); return r; }
-    catch (e: any) { setMsg({ kind: "error", text: e.message + (e.detail?.warnings ? ": " + e.detail.warnings.join("; ") : "") }); }
-    finally { setBusy(false); }
-  };
+  const { msg, setMsg, busy, run } = useActions(st.reload);
   return (
     <aside className="detail" role="dialog" aria-label="Opportunity detail">
       <div className="row"><button onClick={close}>✕ Close</button></div>
       <Async state={st}>
         {(o: any) => (<>
           <h2>{o.title}</h2>
-          <div className="row"><a href={o.url} target="_blank" rel="noreferrer"><b>Open original listing ↗</b></a><span className="chip">{o.source}</span><span className="chip">{o.engagement_type}</span><span className="chip">{o.remote_status}</span>
+          <div className="row"><ExtLink href={o.url}><b>Open original listing ↗</b></ExtLink><span className="chip">{o.source}</span><span className="chip">{o.engagement_type}</span><span className="chip">{o.remote_status}</span>
             <span className={`chip ${o.listing_status === "open" ? "ok" : "warn"}`}>listing {o.listing_status}</span></div>
           {msg && <div className={`alert ${msg.kind}`} role="status">{msg.text}</div>}
           <div className="cols" style={{ marginTop: 8 }}>
@@ -85,7 +80,7 @@ function Detail({ id, close }: { id: number; close: () => void }) {
           <h3>Published emails</h3>
           {(o.contacts ?? []).length === 0 ? <p className="muted">No email published for this listing. Use “Research company” to look for a careers/contact mailbox on the company's own site.</p> : o.contacts.map((c: any) => (
             <div className="panel" key={c.id} style={{ marginBottom: 6 }}><b>{c.email}</b> <span className="chip">{c.eligibility.replace("_", " ")}</span>
-              <div className="muted">{c.basis}</div><div className="muted">Found: <a href={c.source_url} target="_blank" rel="noreferrer">{c.source_url}</a> · {fmtDate(c.found_at)}</div></div>))}
+              <div className="muted">{c.basis}</div><div className="muted">Found: <ExtLink href={c.source_url}>{c.source_url}</ExtLink> · {fmtDate(c.found_at)}</div></div>))}
           <h3>Skills</h3>
           <div>Required (detected): {o.required_skills.map((s: string) => <span className="chip" key={s}>{s}</span>)}</div>
           <div>Matched with yours: {o.matched_skills.map((s: string) => <span className="chip ok" key={s}>{s}</span>)}</div>
@@ -100,10 +95,7 @@ function Detail({ id, close }: { id: number; close: () => void }) {
               <button onClick={() => run(async () => { if (site) await api(`/opportunities/${id}`, { method: "PATCH", body: { company_website: site } }); return api(`/opportunities/${id}/research`, { method: "POST" }); }, "Research finished")} disabled={busy}>Research company</button></div>
             <p className="muted">Website source: {o.company.website_source || "none"} · status: {o.company.research_status}{o.company.last_error && ` · ${o.company.last_error}`}. Pages are fetched respecting robots.txt; retrieved text is treated as untrusted data.</p>
             {o.company.description && <p>{o.company.description}</p>}
-            {o.evidence.filter((e: any) => e.kind === "fact").map((e: any) => (
-              <div className="fact" key={e.id}><b>Verified excerpt</b> · {e.claim}<div className="muted">“{e.excerpt}” — <a href={e.source_url} target="_blank" rel="noreferrer">{e.source_url}</a> · {fmtDate(e.retrieved_at)} · {e.confidence}</div>
-                <label style={{ display: "inline" }}><input type="checkbox" checked={e.approved} onChange={(ev) => run(() => api(`/evidence/${e.id}`, { body: { approved: ev.target.checked } }))} /> approve for use in proposals</label></div>))}
-            {o.evidence.filter((e: any) => e.kind === "hypothesis").map((e: any) => (<div className="hyp" key={e.id}><b>Hypothesis (not a fact, never used in drafts)</b> · {e.claim}</div>))}
+            <EvidenceList evidence={o.evidence} run={run} />
           </>)}
           <h3>Proposal drafts</h3>
           <div className="row"><button className="primary" onClick={() => run(() => api(`/opportunities/${id}/drafts`, { method: "POST" }), "Draft generated")} disabled={busy}>{o.drafts.length ? "Regenerate draft" : "Generate proposal draft"}</button>
@@ -114,27 +106,5 @@ function Detail({ id, close }: { id: number; close: () => void }) {
         </>)}
       </Async>
     </aside>
-  );
-}
-
-function Draft({ d, oppId, run }: { d: any; oppId: number; run: (fn: () => Promise<any>, ok?: string) => Promise<any> }) {
-  const [body, setBody] = useState(d.body);
-  const [ack, setAck] = useState(false);
-  const dirty = body !== d.body;
-  return (
-    <div className="panel" style={{ marginTop: 8 }}>
-      <div className="row"><b>v{d.version}</b><span className={`chip ${d.status === "approved" ? "ok" : d.status === "rejected" ? "bad" : ""}`}>{d.status}</span><span className="chip">{d.generator}</span><span className="muted">est. cost {fmtUsd(d.est_cost_usd)}</span></div>
-      <textarea value={body} onChange={(e) => setBody(e.target.value)} aria-label={`draft v${d.version}`} />
-      <p className="muted"><b>Personalisation rationale:</b> {d.rationale}</p>
-      {d.warnings.length > 0 && (<div className="alert warn"><b>Unsupported-claim warnings</b><ul>{d.warnings.map((w: string) => <li key={w}>{w}</li>)}</ul>
-        <label style={{ display: "inline" }}><input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} /> I reviewed these warnings</label></div>)}
-      <div className="muted">Portfolio evidence cited: {d.portfolio_ids.join(", ") || "none"} · approved facts used: {d.evidence_ids.length}</div>
-      <div className="row" style={{ marginTop: 8 }}>
-        <button onClick={() => run(() => api(`/drafts/${d.id}`, { method: "PATCH", body: { body } }), "Saved (approval reset if text changed)")} disabled={!dirty}>Save edit</button>
-        <button className="primary" disabled={dirty || d.status === "approved" || (d.warnings.length > 0 && !ack)} onClick={() => run(() => api(`/drafts/${d.id}/approve`, { body: { acknowledge_warnings: ack } }), "Approved. Now submit it on the platform yourself.")}>Approve</button>
-        <button className="danger" onClick={() => run(() => api(`/drafts/${d.id}/reject`, { method: "POST" }))}>Reject</button>
-        {d.status === "approved" && <button onClick={() => run(() => api(`/opportunities/${oppId}/applications`, { body: { draft_id: d.id } }), "Application recorded")}>I submitted this on the platform</button>}
-      </div>
-    </div>
   );
 }
