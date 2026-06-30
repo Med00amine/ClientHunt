@@ -425,7 +425,7 @@ def build_combined(db: Session, include_excluded: bool = False) -> dict:  # noqa
         ("review_required", "General mailbox or free-mail address. Check the rules for the recipient's country before writing."),
         ("Fit / Easy to reach", "Heuristics from the listing text (0-100). They tell you what to read first; they do not predict hiring."),
         ("Sources", "Listings link back to their source. Jobicy, Remotive, Remote OK and Himalayas ask for credit; keep the links."),
-        ("Not included", "Freelancer.com projects: its API terms forbid storing its data. Use the Live projects tab."),
+        ("Not included", "Freelancer.com projects: its API terms forbid storing its data. Use Find work → Live projects."),
     ]
     return {"summary": summary, "leads": lead_rows, "opportunities": opp_rows, "prospects": prospect_rows, "emails": email_rows,
             "runs": run_rows,

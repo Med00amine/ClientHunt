@@ -655,16 +655,21 @@ def contact_out(c: BusinessContact) -> dict:
 
 @router.get("/leads")
 def leads(db: Session = Depends(get_db), has_email: bool = True, hide_restricted: bool = True, min_ease: float = 0,
-          min_fit: float = 0, q: str = "", sort: str = "best", limit: int = Query(300, le=1000)):
-    stmt = select(Opportunity).where(Opportunity.review_status != "excluded", Opportunity.ease_score >= min_ease,
+          min_fit: float = 0, q: str = "", sort: str = "best", source: str = "", show_excluded: bool = False,
+          limit: int = Query(300, le=1000)):
+    stmt = select(Opportunity).where(Opportunity.ease_score >= min_ease,
                                      Opportunity.source_key != "prospect", Opportunity.listing_status != "closed",
                                      func.coalesce(Opportunity.score_override, Opportunity.fit_score) >= min_fit)
+    if not show_excluded:
+        stmt = stmt.where(Opportunity.review_status != "excluded")
+    if source:
+        stmt = stmt.where(Opportunity.source_key == source)
     if q:
         like = f"%{q}%"
         stmt = stmt.where(or_(Opportunity.title.ilike(like), Opportunity.company_name.ilike(like),
                               Opportunity.description.ilike(like)))
     fit = func.coalesce(Opportunity.score_override, Opportunity.fit_score)
-    order = {"ease": Opportunity.ease_score.desc(), "fit": fit.desc()}.get(sort, ((Opportunity.ease_score + fit) / 2).desc())
+    order = {"ease": Opportunity.ease_score.desc(), "fit": fit.desc(), "newest": Opportunity.first_seen_at.desc()}.get(sort, ((Opportunity.ease_score + fit) / 2).desc())
     opps = db.scalars(stmt.order_by(order, Opportunity.id.desc()).limit(2000)).all()
     ids = [o.id for o in opps]
     by_opp: dict[int, list[BusinessContact]] = {}

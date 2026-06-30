@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { duration, fmtDate } from "../format";
+import { Chip, runTone } from "../ui";
 import RunSummary from "./RunSummary";
 
 /** One compact line per run; click to open the full details. Active runs open by themselves. */
@@ -7,11 +8,10 @@ export default function RunRow({ run, onChange }: { run: any; onChange?: () => v
   const active = run.status === "pending" || run.status === "running";
   const [open, setOpen] = useState(false);
   const shown = open || active;
-  const tone = run.status === "completed" ? "ok" : run.status === "failed" ? "bad" : "warn";
   return (
     <div className="runrow" data-testid="run-row">
       <button className="rowhead" onClick={() => setOpen(!open)} aria-expanded={shown} aria-label={`Run ${run.id} details`}>
-        <span className={`chip ${tone}`}>{run.status}</span>
+        <Chip tone={runTone(run.status)}>{run.status}</Chip>
         <b>#{run.id}</b>
         <span className="grow">{run.profile_name}</span>
         <span className="muted">{run.discovered} fetched → <b>{run.stored}</b> kept</span>

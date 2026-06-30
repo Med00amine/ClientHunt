@@ -1,67 +1,27 @@
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { afterEach, vi } from "vitest";
-import Overview from "./pages/Overview";
-import Opportunities from "./pages/Opportunities";
+import Listings from "./pages/Listings";
 import RunSummary from "./pages/RunSummary";
-import { fmtBudget } from "./format";
+import RunRow from "./pages/RunRow";
+import RunPanel from "./pages/RunPanel";
+import Files from "./pages/Files";
+import OneFile, { DownloadButton } from "./pages/OneFile";
+import LiveProjects from "./pages/LiveProjects";
+import Sources from "./pages/Sources";
+import { ago, fmtBudget, safeUrl } from "./format";
+import { COUNTS, NO_COUNTS, body, json, renderApp, sent, serve } from "./testing";
 
-const json = (body: unknown, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } }));
 afterEach(() => vi.restoreAllMocks());
-const route = (table: Record<string, unknown>, fallback: unknown = []) => (u: any, init?: any) => {
-  const url = String(u);
-  const key = Object.keys(table).find((k) => url.includes(k));
-  const v = key ? table[key] : fallback;
-  return json(typeof v === "function" ? (v as any)(url, init) : v);
-};
-const COUNTS = { runs: 3, opportunities: 12, leads: 5, emails: 9 };
-
-const overview = (over: object = {}) => ({ opportunities_total: 0, new_since_previous_run: 0, relevant: 0, awaiting_review: 0, proposals_drafted: 0, applications_submitted: 0,
-  replies: 0, interviews: 0, won: 0, lost: 0, research_failures: 0, cost_estimated_usd: 0, cost_actual_usd: 0, month_spend_usd: 0, monthly_budget_usd: 10, last_run: null,
-  contacts_total: 0, auth_enabled: true, ...over });
-
-test("overview shows loading, then an honest empty state without sample data", async () => {
-  vi.spyOn(globalThis, "fetch").mockImplementation(route({ "/export/all/counts": COUNTS }, overview()) as any);
-  render(<Overview go={() => {}} />);
-  expect(screen.getByRole("status")).toHaveTextContent("Loading");
-  expect(await screen.findByText(/No opportunities yet/)).toBeInTheDocument();
-  expect(screen.getByText(/Nothing on this page is sample data/)).toBeInTheDocument();
-});
-
-test("overview shows database numbers", async () => {
-  vi.spyOn(globalThis, "fetch").mockImplementation(route({ "/export/all/counts": COUNTS }, overview({ opportunities_total: 74, interviews: 2 })) as any);
-  render(<Overview go={() => {}} />);
-  expect(await screen.findByText("74")).toBeInTheDocument();
-});
-
-test("error state offers retry", async () => {
-  const spy = vi.spyOn(globalThis, "fetch").mockImplementationOnce(() => json({ detail: "boom" }, 500)).mockImplementation(route({ "/export/all/counts": COUNTS }, overview()) as any);
-  render(<Overview go={() => {}} />);
-  expect(await screen.findByRole("alert")).toHaveTextContent("boom");
-  fireEvent.click(screen.getByText("Retry"));
-  await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
-  expect(spy.mock.calls.filter((c) => String(c[0]).includes("/overview"))).toHaveLength(2);   // the overview itself was asked for twice
-});
-
-test("backend unreachable is explained", async () => {
-  vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("fail"));
-  render(<Overview go={() => {}} />);
-  expect(await screen.findByRole("alert")).toHaveTextContent(/Cannot reach the server/);
-});
-
-test("opportunities empty state", async () => {
-  vi.spyOn(globalThis, "fetch").mockImplementation((u) => json(String(u).includes("/sources") ? [] : { total: 0, items: [] }));
-  render(<Opportunities openId={null} setOpenId={() => {}} />);
-  expect(await screen.findByText(/No opportunities match/)).toBeInTheDocument();
-});
 
 const run = (over: object = {}) => ({ id: 3, status: "completed", profile_name: "p", retry_count: 0, sources_queried: ["a"], discovered: 5, stored: 2, new_count: 2,
   rejected_irrelevant: 3, rejected_duplicate: 0, selected_for_review: 1, companies_researched: 0, drafts_generated: 0, cost_usd: 0, duration_s: 4, started_at: null,
   source_results: { a: { status: "ok", fetched: 5 } }, errors: [], incomplete_notes: [], export_status: "ok", exports: [], info_notes: [], ...over });
+const file = (kind: string, name: string, n: number, url: string) => ({ kind, status: "ok", filename: name, row_count: n, created_at: "2026-10-26T10:00:00Z", run_status: "completed", download_url: url });
 
+// ---------------------------------------------------------------- runs
 test("completed run shows CSV filename, rows and download link", () => {
-  render(<RunSummary run={run({ exports: [{ kind: "opportunities", status: "ok", filename: "opportunities_2026-10-26_10-00-00.csv", row_count: 2, created_at: "2026-10-26T10:00:00Z", run_status: "completed", download_url: "/api/exports/9/download" }] })} />);
-  const a = screen.getByRole("link", { name: /opportunities_2026-10-26_10-00-00\.csv/ });
-  expect(a).toHaveAttribute("href", "/api/exports/9/download");
+  render(<RunSummary run={run({ exports: [file("opportunities", "opportunities_2026-10-26_10-00-00.csv", 2, "/api/exports/9/download")] })} />);
+  expect(screen.getByRole("link", { name: /opportunities_2026-10-26_10-00-00\.csv/ })).toHaveAttribute("href", "/api/exports/9/download");
   expect(screen.getByText(/2 rows/)).toBeInTheDocument();
 });
 
@@ -74,139 +34,25 @@ test("failed export shows retry; failed run says no CSV", () => {
   expect(screen.getByText("x: down")).toBeInTheDocument();
 });
 
+test("a failed action on a run is shown on the run, not in a browser alert", async () => {
+  const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
+  serve({ "POST /runs/3/retry": () => json({ detail: "Already running" }, 409) });
+  render(<RunSummary run={run({ status: "failed", export_status: "none" })} />);
+  fireEvent.click(screen.getByRole("button", { name: "Retry run" }));
+  expect(await screen.findByText("Already running")).toBeInTheDocument();
+  expect(alertSpy).not.toHaveBeenCalled();
+});
+
 test("budget formatting never invents values", () => {
   expect(fmtBudget({ budget_min: null, budget_max: null, currency: "", rate_type: "" })).toBe("not published");
   expect(fmtBudget({ budget_min: 40, budget_max: 60, currency: "USD", rate_type: "hourly" })).toBe("40–60 USD / hourly");
 });
 
-import Leads from "./pages/Leads";
-
-const lead = { id: 5, title: "Python engineer", company_name: "Acme", url: "https://news.ycombinator.com/item?id=5", fit_score: 70, ease_score: 85,
-  ease_signals: ["Company published an email to apply (+30)"], location_requirements: "Worldwide", engagement_type: "contract",
-  contacts: [{ id: 1, email: "jobs@acme.example", type: "role / generic mailbox", purpose: "application_invited", eligibility: "eligible", basis: "published for applications",
-    source_url: "https://news.ycombinator.com/item?id=5", found_at: "2026-10-26T10:00:00Z", context: "To apply, email jobs@acme.example" }] };
-
-test("leads: empty state explains what to do", async () => {
-  vi.spyOn(globalThis, "fetch").mockImplementation(route({ "/export/all/counts": { runs: 0, opportunities: 0, leads: 0, emails: 0 }, "/leads": { total: 0, emails: [], items: [] } }) as any);
-  render(<Leads openOpp={() => {}} />);
-  expect(await screen.findByText(/No leads yet/)).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: /Download ALL runs in ONE file/ })).toBeDisabled();
-  expect(screen.getByRole("button", { name: /Only the emails/ })).toBeInTheDocument();
-});
-
-test("leads: shows email with its source link, eligibility and why it looks easy", async () => {
-  vi.spyOn(globalThis, "fetch").mockImplementation(route({ "/export/all/counts": COUNTS, "/leads": { total: 1, emails: ["jobs@acme.example"], items: [lead] } }) as any);
-  render(<Leads openOpp={() => {}} />);
-  expect(await screen.findByText("jobs@acme.example")).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "found here" })).toHaveAttribute("href", "https://news.ycombinator.com/item?id=5");
-  expect(screen.getByText(/Company published an email to apply/)).toBeInTheDocument();
-  expect(screen.getAllByText("eligible").length).toBeGreaterThan(0);
-});
-
-test("leads: the one-file download is the main button and links to the Excel export", async () => {
-  vi.spyOn(globalThis, "fetch").mockImplementation(route({ "/export/all/counts": COUNTS, "/leads": { total: 1, emails: ["jobs@acme.example"], items: [lead] } }) as any);
-  render(<Leads openOpp={() => {}} />);
-  const main = await screen.findByRole("link", { name: /Download ALL runs in ONE file \(Excel\)/ });
-  expect(main).toHaveAttribute("href", "/api/export/all?format=xlsx");
-  expect(screen.getByRole("link", { name: /or as one CSV/ })).toHaveAttribute("href", "/api/export/all?format=csv");
-  expect(screen.getByText(/12 opportunities · 5 leads you can act on \(email, good fit, open to Tunisia\) · 9 emails in total · 0 prospects · 3 runs/)).toBeInTheDocument();
-});
-
-test("leads: emails-only button creates the CSV and reports the file", async () => {
-  const spy = vi.spyOn(globalThis, "fetch").mockImplementation(((u: any, init?: any) =>
-    String(u).includes("/exports/emails") && init?.method === "POST"
-      ? json({ status: "ok", filename: "emails_all_2026.csv", row_count: 1, download_url: "/api/exports/7/download" })
-      : route({ "/export/all/counts": COUNTS, "/leads": { total: 1, emails: ["jobs@acme.example"], items: [lead] } })(u, init)) as any);
-  const loc = { href: "" } as any;
-  Object.defineProperty(window, "location", { value: loc, writable: true });
-  render(<Leads openOpp={() => {}} />);
-  await screen.findByText("jobs@acme.example");
-  fireEvent.click(screen.getByRole("button", { name: /Only the emails/ }));
-  expect(await screen.findByText(/emails_all_2026\.csv created with 1 emails/)).toBeInTheDocument();
-  expect(loc.href).toBe("/api/exports/7/download");
-  expect(spy).toHaveBeenCalled();
-});
-
-test("run card shows the emails CSV and count", () => {
-  render(<RunSummary run={run({ emails_found: 4, exports: [
-    { kind: "opportunities", status: "ok", filename: "opportunities_x.csv", row_count: 9, created_at: "2026-10-26T10:00:00Z", run_status: "completed", download_url: "/api/exports/1/download" },
-    { kind: "emails", status: "ok", filename: "emails_x.csv", row_count: 4, created_at: "2026-10-26T10:00:00Z", run_status: "completed", download_url: "/api/exports/2/download" }] })} />);
+test("run card shows the emails CSV and count, and a ZIP of that run's two CSVs", () => {
+  render(<RunSummary run={run({ id: 8, emails_found: 4, exports: [file("opportunities", "opportunities_x.csv", 9, "/x/1"), file("emails", "emails_x.csv", 4, "/api/exports/2/download")] })} />);
   expect(screen.getByRole("link", { name: /emails_x\.csv/ })).toHaveAttribute("href", "/api/exports/2/download");
   expect(screen.getByTestId("emails-export")).toHaveTextContent("4 emails");
-});
-
-import Runs from "./pages/Runs";
-
-const exp = (over: object) => ({ id: 1, run_id: 1, kind: "opportunities", status: "ok", filename: "a.csv", row_count: 1, created_at: "2026-10-26T10:00:00Z",
-  run_status: "completed", download_url: "/api/exports/1/download", error: "", ...over });
-
-test("runs page: one-file download on top, ZIP of individual files tucked in the archive", async () => {
-  vi.spyOn(globalThis, "fetch").mockImplementation(route({ "/export/all/counts": COUNTS, "/exports": [exp({}), exp({ id: 2, kind: "emails", filename: "e.csv" })], "/runs": [] }) as any);
-  render(<Runs go={() => {}} />);
-  expect(await screen.findByRole("link", { name: /Download ALL runs in ONE file \(Excel\)/ })).toHaveAttribute("href", "/api/exports/../export/all?format=xlsx".replace("/exports/..", ""));
-  const archive = screen.getByTestId("archive");
-  expect(archive.tagName).toBe("DETAILS");
-  expect(archive).not.toHaveAttribute("open");                                    // individual files are hidden by default
-  const zip = await screen.findByRole("link", { name: /Download all of them \(ZIP\)/ });
-  expect(zip).toHaveAttribute("href", "/api/exports/download-all");
-  fireEvent.change(screen.getByLabelText("which CSVs"), { target: { value: "emails" } });
-  expect(screen.getByRole("link", { name: /Download all of them/ })).toHaveAttribute("href", "/api/exports/download-all?kind=emails");
-  expect(screen.getByText(/1 file\(s\) in one ZIP/)).toBeInTheDocument();
-});
-
-test("runs page: nothing exported yet disables both downloads", async () => {
-  vi.spyOn(globalThis, "fetch").mockImplementation(route({ "/export/all/counts": { runs: 0, opportunities: 0, leads: 0, emails: 0 }, "/exports": [], "/runs": [] }) as any);
-  render(<Runs go={() => {}} />);
-  expect(await screen.findByRole("button", { name: /Download ALL runs in ONE file/ })).toBeDisabled();
-  expect(screen.getByRole("button", { name: /Download all of them/ })).toBeDisabled();
-  expect(await screen.findByText(/Nothing to download yet/)).toBeInTheDocument();
-});
-
-test("run card offers a ZIP of that run's two CSVs", () => {
-  render(<RunSummary run={run({ id: 8, exports: [
-    { kind: "opportunities", status: "ok", filename: "o.csv", row_count: 2, created_at: "2026-10-26T10:00:00Z", run_status: "completed", download_url: "/x/1" },
-    { kind: "emails", status: "ok", filename: "e.csv", row_count: 1, created_at: "2026-10-26T10:00:00Z", run_status: "completed", download_url: "/x/2" }] })} />);
   expect(screen.getByRole("link", { name: /Download both CSVs of this run/ })).toHaveAttribute("href", "/api/exports/download-all?run_id=8");
-});
-
-import Research from "./pages/Research";
-import RunRow from "./pages/RunRow";
-import OneFile from "./pages/OneFile";
-import LiveProjects from "./pages/LiveProjects";
-import Settings from "./pages/Settings";
-import { safeUrl, ago } from "./format";
-
-const PROFILES = [
-  { id: 1, name: "AI/LLM and RAG projects", params: { keywords: ["llm"], required_skills: [], sources: ["remotive"] }, is_preset: true },
-  { id: 7, name: "AI / ML projects: contract & freelance only", params: { keywords: ["machine learning"], required_skills: [], sources: ["jobicy", "wwr"], strict_engagement: true }, is_preset: true },
-];
-const SOURCES = [{ key: "jobicy", name: "Jobicy (public API)", kind: "api", enabled: true, verified: true, docs_url: "https://jobicy.com", terms_url: "", notes: "", checked_at: "2026-10-27" },
-  { key: "freelancer_live", name: "Freelancer.com: live projects (not stored)", kind: "live", enabled: true, verified: true, docs_url: "javascript:alert(1)", terms_url: "https://www.freelancer.com/about/apiterms", notes: "no storing", checked_at: "2026-10-27" }];
-
-test("research: preselects the AI/ML saved search, shows ONE download and compact runs (no per-run buttons)", async () => {
-  const runs = [1, 2, 3].map((i) => run({ id: i, exports: [{ kind: "opportunities", status: "ok", filename: `o${i}.csv`, row_count: 2, created_at: "2026-10-26T10:00:00Z", run_status: "completed", download_url: `/x/${i}` }] }));
-  vi.spyOn(globalThis, "fetch").mockImplementation(route({ "/profiles": PROFILES, "/sources": SOURCES, "/export/all/counts": COUNTS, "/runs": runs }) as any);
-  render(<Research go={() => {}} />);
-  const select = (await screen.findByLabelText("Saved search")) as HTMLSelectElement;
-  await waitFor(() => expect(select.value).toBe("7"));
-  expect(screen.getByText(/only listings that say contract, freelance or part-time/)).toBeInTheDocument();
-  expect(await screen.findByRole("link", { name: /Download ALL runs in ONE file \(Excel\)/ })).toBeInTheDocument();
-  const rows = await screen.findAllByTestId("run-row");
-  expect(rows).toHaveLength(3);
-  // compact: no CSV link, no ZIP button and no "Export CSV" button is visible until a run is opened
-  expect(screen.queryByRole("link", { name: /o1\.csv/ })).not.toBeInTheDocument();
-  expect(screen.queryByText("Export CSV")).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "Run 1 details" }));
-  expect(screen.getByRole("link", { name: /o1\.csv/ })).toBeInTheDocument();
-  expect(screen.getByTestId("run-files").tagName).toBe("DETAILS");
-});
-
-test("research: custom search offers the strict contract/freelance option", async () => {
-  vi.spyOn(globalThis, "fetch").mockImplementation(route({ "/profiles": PROFILES, "/sources": SOURCES, "/export/all/counts": COUNTS, "/runs": [] }) as any);
-  render(<Research go={() => {}} />);
-  fireEvent.change(await screen.findByLabelText("Saved search"), { target: { value: "custom" } });
-  expect(await screen.findByLabelText(/Only listings that say contract \/ freelance \/ part-time/)).toBeInTheDocument();
-  expect(screen.getByLabelText(/Jobicy \(public API\)/)).toBeInTheDocument();
 });
 
 test("run row: running run opens by itself, finished run stays closed", () => {
@@ -217,23 +63,169 @@ test("run row: running run opens by itself, finished run stays closed", () => {
   expect(screen.queryByText("Sources queried")).not.toBeInTheDocument();
 });
 
+// ---------------------------------------------------------------- listings (one list: with and without an email)
+const lead = { id: 5, title: "Python engineer", company_name: "Acme", source: "hn_hiring", url: "https://news.ycombinator.com/item?id=5", fit_score: 70, score_override: null, ease_score: 85,
+  review_status: "new", location_requirements: "Worldwide", engagement_type: "contract",
+  contacts: [{ id: 1, email: "jobs@acme.example", type: "role / generic mailbox", purpose: "application_invited", eligibility: "eligible", basis: "published for applications",
+    source_url: "https://news.ycombinator.com/item?id=5", found_at: "2026-10-26T10:00:00Z", context: "To apply, email jobs@acme.example" }] };
+const LEADS = { total: 1, emails: ["jobs@acme.example"], items: [lead] };
+
+test("listings: empty state says what to do and the email buttons wait for emails", async () => {
+  serve({ "/leads": { total: 0, emails: [], items: [] }, "/sources": [] });
+  renderApp(<Listings />);
+  expect(await screen.findByText(/No listings match/)).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Copy 0 emails" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: /Emails \(CSV\)/ })).toBeInTheDocument();
+});
+
+test("listings: a row shows the email with its source link and eligibility, and opens the listing over the page", async () => {
+  serve({ "/leads": LEADS, "/sources": [] });
+  const { ctx } = renderApp(<Listings />);
+  expect(await screen.findByText("jobs@acme.example")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "found here" })).toHaveAttribute("href", "https://news.ycombinator.com/item?id=5");
+  expect(screen.getByText("eligible")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: /Listing/ })).toHaveAttribute("href", "https://news.ycombinator.com/item?id=5");
+  fireEvent.click(screen.getByText("Python engineer"));
+  expect(ctx.open).toHaveBeenCalledWith("opp", 5);
+  fireEvent.click(screen.getByRole("link", { name: "found here" }));                          // a link inside the row must not also open the drawer
+  expect(ctx.open).toHaveBeenCalledTimes(1);
+});
+
+test("listings: a listing without an email still shows, and the filters are sent to the server", async () => {
+  const spy = serve({ "/leads": { total: 1, emails: [], items: [{ ...lead, contacts: [] }] }, "/sources": [{ key: "jobicy" }] });
+  renderApp(<Listings />);
+  expect(await screen.findByText("Python engineer")).toBeInTheDocument();
+  expect(screen.getByText("no email published")).toBeInTheDocument();
+  fireEvent.click(screen.getByLabelText(/only with an email/));
+  fireEvent.change(screen.getByLabelText("sort"), { target: { value: "ease" } });
+  fireEvent.change(screen.getByLabelText("source filter"), { target: { value: "jobicy" } });
+  fireEvent.click(screen.getByLabelText(/show excluded/));
+  await waitFor(() => expect(spy.mock.calls.some((c) => /has_email=false.*sort=ease.*source=jobicy.*show_excluded=true/.test(String(c[0])))).toBe(true));
+});
+
+test("listings: emails-only button creates the CSV and reports the file", async () => {
+  const spy = serve({ "POST /exports/emails": { status: "ok", filename: "emails_all_2026.csv", row_count: 1, download_url: "/api/exports/7/download" }, "/leads": LEADS, "/sources": [] });
+  const original = Object.getOwnPropertyDescriptor(window, "location")!;
+  const loc = { href: "" } as any;
+  Object.defineProperty(window, "location", { value: loc, writable: true, configurable: true });
+  try {
+    renderApp(<Listings />);
+    await screen.findByText("jobs@acme.example");
+    fireEvent.click(screen.getByRole("button", { name: /Emails \(CSV\)/ }));
+    expect(await screen.findByText(/emails_all_2026\.csv created with 1 emails/)).toBeInTheDocument();
+    expect(loc.href).toBe("/api/exports/7/download");
+    expect(sent(spy, "POST", "/exports/emails")).toHaveLength(1);
+  } finally { Object.defineProperty(window, "location", original); }
+});
+
+// ---------------------------------------------------------------- run a search
+const PROFILES = [
+  { id: 1, name: "AI/LLM and RAG projects", params: { keywords: ["llm"], required_skills: [], sources: ["remotive"] }, is_preset: true },
+  { id: 7, name: "AI / ML projects: contract & freelance only", params: { keywords: ["machine learning"], required_skills: [], sources: ["jobicy", "wwr"], strict_engagement: true }, is_preset: true },
+];
+const SOURCES = [{ key: "jobicy", name: "Jobicy (public API)", kind: "api", enabled: true, verified: true, docs_url: "https://jobicy.com", terms_url: "", notes: "", checked_at: "2026-10-27" },
+  { key: "freelancer_live", name: "Freelancer.com: live projects (not stored)", kind: "live", enabled: true, verified: true, docs_url: "javascript:alert(1)", terms_url: "https://www.freelancer.com/about/apiterms", notes: "no storing", checked_at: "2026-10-27" }];
+
+test("run panel: preselects the AI/ML saved search and shows only the newest run, compact until opened", async () => {
+  const runs = [3, 2, 1].map((i) => run({ id: i, exports: [file("opportunities", `o${i}.csv`, 2, `/x/${i}`)] }));
+  serve({ "/profiles": PROFILES, "/sources": SOURCES, "/runs": runs });
+  render(<RunPanel />);
+  const select = (await screen.findByLabelText("Saved search")) as HTMLSelectElement;
+  await waitFor(() => expect(select.value).toBe("7"));
+  expect(screen.getByText(/only listings that say contract, freelance or part-time/)).toBeInTheDocument();
+  expect(await screen.findAllByTestId("run-row")).toHaveLength(1);
+  expect(screen.queryByRole("link", { name: /o3\.csv/ })).not.toBeInTheDocument();           // no CSV link until the run is opened
+  fireEvent.click(screen.getByRole("button", { name: "Run 3 details" }));
+  expect(screen.getByRole("link", { name: /o3\.csv/ })).toBeInTheDocument();
+  expect(screen.getByTestId("run-files").tagName).toBe("DETAILS");
+});
+
+test("run panel: Run search starts the chosen saved search", async () => {
+  const spy = serve({ "POST /runs": { id: 9 }, "/profiles": PROFILES, "/sources": SOURCES, "/runs": [] });
+  render(<RunPanel />);
+  const select = (await screen.findByLabelText("Saved search")) as HTMLSelectElement;
+  await waitFor(() => expect(select.value).toBe("7"));
+  fireEvent.click(screen.getByRole("button", { name: "Run search" }));
+  expect(await screen.findByText("Run #9 started.")).toBeInTheDocument();
+  expect(body(sent(spy, "POST", "/runs")[0])).toEqual({ profile_id: 7 });
+});
+
+test("run panel: a custom search offers the strict contract/freelance option and the enabled sources", async () => {
+  serve({ "/profiles": PROFILES, "/sources": SOURCES, "/runs": [] });
+  render(<RunPanel />);
+  fireEvent.change(await screen.findByLabelText("Saved search"), { target: { value: "custom" } });
+  expect(await screen.findByLabelText(/Only listings that say contract \/ freelance \/ part-time/)).toBeInTheDocument();
+  expect(screen.getByLabelText(/Jobicy \(public API\)/)).toBeInTheDocument();
+  expect(screen.queryByLabelText(/Freelancer.com: live projects/)).not.toBeInTheDocument();   // the live view is not a stored source
+});
+
+// ---------------------------------------------------------------- downloads
+test("header download: a link to the one Excel file, disabled while there is nothing to download", async () => {
+  serve({ "/export/all/counts": COUNTS });
+  const { unmount } = render(<DownloadButton />);
+  expect(await screen.findByRole("link", { name: /Download all/ })).toHaveAttribute("href", "/api/export/all?format=xlsx");
+  unmount();
+  vi.restoreAllMocks();
+  serve({ "/export/all/counts": NO_COUNTS });
+  render(<DownloadButton />);
+  expect(await screen.findByRole("button", { name: /Download all/ })).toBeDisabled();
+});
+
 test("one-file panel: counts, Excel and CSV links; disabled when empty", async () => {
-  vi.spyOn(globalThis, "fetch").mockImplementation(route({ "/export/all/counts": COUNTS }) as any);
+  serve({ "/export/all/counts": COUNTS });
   const { unmount } = render(<OneFile />);
   expect(await screen.findByRole("link", { name: /Download ALL runs in ONE file \(Excel\)/ })).toHaveAttribute("href", "/api/export/all?format=xlsx");
+  expect(screen.getByRole("link", { name: /or as one CSV/ })).toHaveAttribute("href", "/api/export/all?format=csv");
+  expect(screen.getByText(/12 opportunities · 5 leads you can act on \(email, good fit, open to Tunisia\) · 9 emails in total · 0 prospects · 3 runs/)).toBeInTheDocument();
   expect(screen.getByText(/Summary, Leads, Opportunities, Prospects, Emails, Runs/)).toBeInTheDocument();
   unmount();
   vi.restoreAllMocks();
-  vi.spyOn(globalThis, "fetch").mockImplementation(route({ "/export/all/counts": { runs: 0, opportunities: 0, leads: 0, emails: 0 } }) as any);
+  serve({ "/export/all/counts": NO_COUNTS });
   render(<OneFile />);
   expect(await screen.findByRole("button", { name: /Download ALL runs in ONE file/ })).toBeDisabled();
+  expect(screen.getByText(/Nothing to download yet/)).toBeInTheDocument();
 });
 
+const exp = (over: object) => ({ id: 1, run_id: 1, kind: "opportunities", status: "ok", filename: "a.csv", row_count: 1, created_at: "2026-10-26T10:00:00Z",
+  run_status: "completed", download_url: "/api/exports/1/download", error: "", ...over });
+const USAGE = { events: [], month_spend_usd: 0, monthly_budget_usd: 10, llm_price_note: "" };
+
+test("files: one-file download on top, ZIP of individual files tucked in the archive", async () => {
+  serve({ "/export/all/counts": COUNTS, "/exports": [exp({}), exp({ id: 2, kind: "emails", filename: "e.csv" })], "/runs": [], "/usage": USAGE });
+  render(<Files />);
+  expect(await screen.findByRole("link", { name: /Download ALL runs in ONE file \(Excel\)/ })).toHaveAttribute("href", "/api/export/all?format=xlsx");
+  const archive = screen.getByTestId("archive");
+  expect(archive.tagName).toBe("DETAILS");
+  expect(archive).not.toHaveAttribute("open");                                    // individual files are hidden by default
+  expect(await screen.findByRole("link", { name: /Download all of them \(ZIP\)/ })).toHaveAttribute("href", "/api/exports/download-all");
+  fireEvent.change(screen.getByLabelText("which CSVs"), { target: { value: "emails" } });
+  expect(screen.getByRole("link", { name: /Download all of them/ })).toHaveAttribute("href", "/api/exports/download-all?kind=emails");
+  expect(screen.getByText(/1 file\(s\) in one ZIP/)).toBeInTheDocument();
+  expect(screen.getByText(/No paid usage recorded/)).toBeInTheDocument();
+});
+
+test("files: nothing exported yet disables both downloads; runs list as compact rows", async () => {
+  serve({ "/export/all/counts": NO_COUNTS, "/exports": [], "/runs": [run({ id: 4 }), run({ id: 5 })], "/usage": USAGE });
+  render(<Files />);
+  expect(await screen.findByRole("button", { name: /Download ALL runs in ONE file/ })).toBeDisabled();
+  expect(screen.getByRole("button", { name: /Download all of them/ })).toBeDisabled();
+  expect(await screen.findAllByTestId("run-row")).toHaveLength(2);
+});
+
+test("files: a failed backup is reported on the page", async () => {
+  serve({ "POST /admin/backup": () => json({ detail: "disk full" }, 500), "/export/all/counts": NO_COUNTS, "/exports": [], "/runs": [], "/usage": USAGE });
+  render(<Files />);
+  fireEvent.click(await screen.findByRole("button", { name: "Back up database now" }));
+  expect(await screen.findByText("disk full")).toBeInTheDocument();
+});
+
+// ---------------------------------------------------------------- live projects
 const PROJECT = { id: 11, title: "LLM agent for support", url: "https://www.freelancer.com/projects/machine-learning/LLM-agent-11", type: "fixed", budget_min: 250, budget_max: 750,
   currency: "USD", currency_sign: "$", budget_max_usd: 750, bids: 4, bid_avg: 300, competition: "few bids", age_minutes: 25, skills: ["Python", "LLM"], excerpt: "Build an agent", fit: 71, worth: 78, urgent: false, matched_skills: ["python"] };
+const NONE = { queries: [], total_matches: 0, items: [], cached_for_minutes: 15, notice: "x" };
 
 test("live projects: loading, then results with competition, safe link and the no-storage notice", async () => {
-  vi.spyOn(globalThis, "fetch").mockImplementation(route({ "/live/freelancer": { queries: ["llm"], total_matches: 1, items: [PROJECT, { ...PROJECT, id: 12, title: "Evil", url: "javascript:alert(1)", competition: "crowded", bids: 150 }], cached_for_minutes: 15, notice: "x" } }) as any);
+  serve({ "/live/freelancer": { queries: ["llm"], total_matches: 1, items: [PROJECT, { ...PROJECT, id: 12, title: "Evil", url: "javascript:alert(1)", competition: "crowded", bids: 150 }], cached_for_minutes: 15, notice: "x" } });
   render(<LiveProjects />);
   expect(screen.getByRole("status")).toHaveTextContent("Loading");
   expect(screen.getByText(/do not allow storing its data/)).toBeInTheDocument();
@@ -251,31 +243,47 @@ test("live projects: error and empty states", async () => {
   expect(await screen.findByRole("alert")).toHaveTextContent("slow down");
   unmount();
   vi.restoreAllMocks();
-  vi.spyOn(globalThis, "fetch").mockImplementation(route({ "/live/freelancer": { queries: [], total_matches: 0, items: [], cached_for_minutes: 15, notice: "x" } }) as any);
+  serve({ "/live/freelancer": NONE });
   render(<LiveProjects />);
   expect(await screen.findByText(/No open projects match/)).toBeInTheDocument();
 });
 
 test("live projects: Search sends the chosen filters", async () => {
-  const spy = vi.spyOn(globalThis, "fetch").mockImplementation(route({ "/live/freelancer": { queries: [], total_matches: 0, items: [], cached_for_minutes: 15, notice: "x" } }) as any);
+  const spy = serve({ "/live/freelancer": NONE });
   render(<LiveProjects />);
   await screen.findByText(/No open projects match/);
   fireEvent.change(screen.getByLabelText("max bids"), { target: { value: "10" } });
   fireEvent.change(screen.getByLabelText("sort"), { target: { value: "newest" } });
+  fireEvent.change(screen.getByLabelText("min hourly rate"), { target: { value: "35" } });
   fireEvent.click(screen.getByRole("button", { name: "Search" }));
-  await waitFor(() => expect(spy.mock.calls.some((c) => String(c[0]).includes("max_bids=10") && String(c[0]).includes("sort=newest"))).toBe(true));
+  await waitFor(() => expect(spy.mock.calls.some((c) => /max_bids=10/.test(String(c[0])) && /sort=newest/.test(String(c[0])) && /min_hourly_usd=35/.test(String(c[0])))).toBe(true));
 });
 
-test("settings: live source is labelled, unsafe docs link is dropped, resources list is shown", async () => {
-  vi.spyOn(globalThis, "fetch").mockImplementation(route({ "/sources": SOURCES, "/portfolio": [], "/usage": { events: [], month_spend_usd: 0, monthly_budget_usd: 10, llm_price_note: "" } }) as any);
-  render(<Settings />);
+// ---------------------------------------------------------------- sources
+test("sources: live source is labelled, unsafe docs link is dropped, the resources list names what the app never reads", async () => {
+  serve({ "/sources": SOURCES });
+  render(<Sources />);
   expect(await screen.findByText("live view only (not stored)")).toBeInTheDocument();
   const hrefs = screen.getAllByRole("link").map((a) => a.getAttribute("href"));
   expect(hrefs.some((h) => (h ?? "").startsWith("javascript:"))).toBe(false);
   const res = screen.getByTestId("resources");
+  expect(res.tagName).toBe("DETAILS");
+  expect(res).not.toHaveAttribute("open");
   expect(res).toHaveTextContent("Freelancer.com: machine learning");
   expect(res).toHaveTextContent("Reddit r/forhire");
   expect(res).toHaveTextContent("never reads it");
+});
+
+test("sources: an alert email is sent for parsing and the outcome is shown", async () => {
+  const spy = serve({ "POST /alerts/import": { parsed: 2, run: { exports: [{ filename: "opportunities_alert.csv" }] } }, "/sources": SOURCES });
+  render(<Sources />);
+  await screen.findByText("live view only (not stored)");
+  const importBtn = screen.getByRole("button", { name: "Import" });
+  expect(importBtn).toBeDisabled();                                                        // nothing to parse yet
+  fireEvent.change(screen.getByLabelText("alert email text"), { target: { value: "New job: LLM engineer https://www.upwork.com/jobs/~01" } });
+  fireEvent.click(importBtn);
+  expect(await screen.findByText(/Parsed 2 job link\(s\); CSV opportunities_alert\.csv/)).toBeInTheDocument();
+  expect(body(sent(spy, "POST", "/alerts/import")[0])).toEqual({ text: "New job: LLM engineer https://www.upwork.com/jobs/~01", platform_hint: "" });
 });
 
 test("safeUrl only lets http(s) through; ago() reads naturally", () => {

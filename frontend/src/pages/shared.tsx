@@ -2,9 +2,9 @@ import { useState } from "react";
 import { api } from "../api";
 import { ExtLink } from "../components";
 import { fmtDate, fmtUsd } from "../format";
+import { Chip, Msg } from "../ui";
 
 export type Run = (fn: () => Promise<any>, ok?: string) => Promise<any>;
-export type Msg = { kind: string; text: string } | null;
 
 /** Runs an action, shows its outcome, and reloads the thing on screen. Errors carry the server's warnings when it sends some. */
 export function useActions(reload: (silent?: boolean) => void) {
@@ -30,12 +30,11 @@ export function Draft({ d, oppId, run, words = LISTING_WORDS }: { d: any; oppId:
   const dirty = body !== d.body;
   return (
     <div className="panel" style={{ marginTop: 8 }}>
-      <div className="row"><b>v{d.version}</b><span className={`chip ${d.status === "approved" ? "ok" : d.status === "rejected" ? "bad" : ""}`}>{d.status}</span><span className="chip">{d.generator}</span><span className="muted">est. cost {fmtUsd(d.est_cost_usd)}</span></div>
+      <div className="row"><b>v{d.version}</b><Chip tone={d.status === "approved" ? "ok" : d.status === "rejected" ? "bad" : ""}>{d.status}</Chip><Chip>{d.generator}</Chip><span className="muted">est. cost {fmtUsd(d.est_cost_usd)}</span></div>
       <textarea value={body} onChange={(e) => setBody(e.target.value)} aria-label={`draft v${d.version}`} />
-      <p className="muted"><b>Personalisation rationale:</b> {d.rationale}</p>
+      <div className="muted">{d.rationale}{d.portfolio_ids.length > 0 && ` · cites: ${d.portfolio_ids.join(", ")}`}</div>
       {d.warnings.length > 0 && (<div className="alert warn"><b>Unsupported-claim warnings</b><ul>{d.warnings.map((w: string) => <li key={w}>{w}</li>)}</ul>
-        <label style={{ display: "inline" }}><input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} /> I reviewed these warnings</label></div>)}
-      <div className="muted">Portfolio evidence cited: {d.portfolio_ids.join(", ") || "none"} · approved facts used: {d.evidence_ids.length}</div>
+        <label className="in"><input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} /> I reviewed these warnings</label></div>)}
       <div className="row" style={{ marginTop: 8 }}>
         <button onClick={() => run(() => api(`/drafts/${d.id}`, { method: "PATCH", body: { body } }), "Saved (approval reset if text changed)")} disabled={!dirty}>Save edit</button>
         <button className="primary" disabled={dirty || d.status === "approved" || (d.warnings.length > 0 && !ack)} onClick={() => run(() => api(`/drafts/${d.id}/approve`, { body: { acknowledge_warnings: ack } }), words.approved)}>Approve</button>
@@ -52,7 +51,7 @@ export function EvidenceList({ evidence, run }: { evidence: any[]; run: Run }) {
     <>
       {evidence.filter((e) => e.kind === "fact").map((e) => (
         <div className="fact" key={e.id}><b>Verified excerpt</b> · {e.claim}<div className="muted">“{e.excerpt}” — <ExtLink href={e.source_url}>{e.source_url}</ExtLink> · {fmtDate(e.retrieved_at)} · {e.confidence}</div>
-          <label style={{ display: "inline" }}><input type="checkbox" checked={e.approved} onChange={(ev) => run(() => api(`/evidence/${e.id}`, { body: { approved: ev.target.checked } }))} /> approve for use in proposals</label></div>))}
+          <label className="in"><input type="checkbox" checked={e.approved} onChange={(ev) => run(() => api(`/evidence/${e.id}`, { body: { approved: ev.target.checked } }))} /> approve for use in proposals</label></div>))}
       {evidence.filter((e) => e.kind === "hypothesis").map((e) => (<div className="hyp" key={e.id}><b>Hypothesis (not a fact, never used in drafts)</b> · {e.claim}</div>))}
     </>
   );

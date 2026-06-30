@@ -57,12 +57,12 @@ CHANNELS = [
      "what": "Companies that wrote their own address in a hiring or project post (Hacker News and job boards).",
      "why": "They invited a message and there is no marketplace in between. Each takes about 20 minutes done well.",
      "honest": "Few of these are contract or freelance and open to Tunisia. The numbers in 'What clients ask for' show how many your own data holds.",
-     "how": ["Open the lead, read the post, approve one fact from the company's page, edit the draft and send it yourself.",
-             "Newest posts first: the Leads tab shows the post date."]},
+     "how": ["Open the listing, read the post, approve one fact from the company's page, edit the draft and send it yourself.",
+             "Newest posts first: Find work shows the post date."]},
     {"key": "marketplace", "name": "Small paid projects on marketplaces", "tab": "Live projects", "share": 25,
-     "what": "Projects posted on Freelancer.com (Live projects tab, never stored) and Upwork (alert emails you import).",
+     "what": "Projects posted on Freelancer.com (Find work → Live projects, never stored) and Upwork (alert emails you import).",
      "why": "The shortest road to a first paid project and a first review.",
-     "honest": "Crowded: the Live tab shows how many bids a project already has. Choose projects with few bids and a clear scope, and answer their exact question first.",
+     "honest": "Crowded: Live projects shows how many bids a project already has. Choose projects with few bids and a clear scope, and answer their exact question first.",
      "how": ["Filter by minimum budget and maximum bids, open the project, propose a concrete first step.",
              "Keep talking and getting paid inside the platform until a contract exists: Upwork's help center calls moving a client off-platform before a contract circumvention."]},
     {"key": "agencies", "name": "Agencies that may subcontract", "tab": "Prospects", "share": 20,
@@ -87,7 +87,7 @@ CHANNELS = [
      "what": "Verified portfolio items, a clear README and a short live demo of your best work.",
      "why": "Every other channel works better when the person you write to can check something in a minute.",
      "honest": "Slow to pay off. The app only cites portfolio items you marked verified, so unverified items weaken every draft.",
-     "how": ["Verify only what is true, in Settings.", "Keep one demo link in every message."]},
+     "how": ["Verify only what is true, under Data → Portfolio.", "Keep one demo link in every message."]},
 ]
 
 # Facts read from each organisation's own page on CHECKED. "quote" is a sentence that appears on that page.
@@ -185,10 +185,10 @@ WHY_NOT_UPWORK = {
         "Your own brief said not to scrape Upwork or Fiverr profiles or emails and not to bypass logins or rate limits.",
     ],
     "instead": [
-        "Import the Upwork alert emails you already receive (Runs / Alerts), so Upwork projects enter the app through its own notifications.",
-        "The Live projects tab shows Freelancer.com projects through its API without storing them.",
+        "Import the Upwork alert emails you already receive (Data → Sources), so Upwork projects enter the app through its own notifications.",
+        "Find work → Live projects shows Freelancer.com projects through its API without storing them.",
         "Prospects: you name the companies and agencies; the app reads their own public sites and lists the mailboxes they published.",
-        "Leads: hiring posts whose company published its own address to receive applications.",
+        "Find work: hiring posts whose company published its own address to receive applications.",
     ],
     "sources": [
         {"title": "Upwork help: use bots and other automation properly",

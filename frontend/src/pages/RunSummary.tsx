@@ -1,36 +1,37 @@
+import { useState } from "react";
 import { api } from "../api";
 import { duration, fmtDate, fmtUsd } from "../format";
+import { Chip, Msg, Notice, Stat, Table, runTone } from "../ui";
 
 export default function RunSummary({ run, onChange }: { run: any; onChange?: () => void }) {
+  const [msg, setMsg] = useState<Msg>(null);
   const ex = (run.exports ?? []).filter((e: any) => e.kind === "opportunities");
   const latest = ex[0];
   const emailEx = (run.exports ?? []).filter((e: any) => e.kind === "emails" && e.status === "ok")[0];
-  const act = async (path: string) => { try { await api(path, { method: "POST" }); } catch (e: any) { alert(e.message); } onChange?.(); };
+  const act = async (path: string) => { try { await api(path, { method: "POST" }); setMsg(null); } catch (e: any) { setMsg({ kind: "error", text: e.message }); } onChange?.(); };
   const active = run.status === "pending" || run.status === "running";
   return (
     <div className="panel" data-testid="run-summary">
       <div className="row">
-        <b>Run #{run.id}</b> <span className={`chip ${run.status === "completed" ? "ok" : run.status === "failed" ? "bad" : "warn"}`}>{run.status}</span>
+        <b>Run #{run.id}</b> <Chip tone={runTone(run.status)}>{run.status}</Chip>
         <span className="muted">{run.profile_name}</span>
-        {run.retry_count > 0 && <span className="chip">retry {run.retry_count}</span>}
-        <span style={{ flex: 1 }} />
+        {run.retry_count > 0 && <Chip>retry {run.retry_count}</Chip>}
+        <span className="grow" />
         {active && <button className="danger" onClick={() => act(`/runs/${run.id}/cancel`)}>Cancel</button>}
         {run.status === "failed" || run.status === "cancelled" || run.status === "partial" ? <button onClick={() => act(`/runs/${run.id}/retry`)}>Retry run</button> : null}
       </div>
+      <Notice msg={msg} />
       {run.status === "running" && <p className="muted">Now querying: <b>{run.current_source || "processing…"}</b></p>}
-      <div className="grid" style={{ margin: "10px 0" }}>
-        {[["Sources queried", (run.sources_queried ?? []).length], ["Fetched", run.discovered], ["Stored & scored", run.stored], ["New", run.new_count],
-          ["Rejected: irrelevant", run.rejected_irrelevant], ["Rejected: duplicate", run.rejected_duplicate], ["Selected for review (≥40)", run.selected_for_review],
-          ["Emails found", run.emails_found ?? 0], ["Companies researched", run.companies_researched], ["Drafts generated", run.drafts_generated], ["API cost", fmtUsd(run.cost_usd)],
-          ["Duration", duration(run.duration_s)], ["Started", fmtDate(run.started_at)]].map(([l, n]) => (
-          <div key={String(l)}><div className="n" style={{ fontSize: 18, fontWeight: 600 }}>{String(n)}</div><div className="l muted">{l}</div></div>))}
+      <div className="stats" style={{ margin: "10px 0" }}>
+        <Stat n={(run.sources_queried ?? []).length} label="Sources queried" /><Stat n={run.discovered} label="Fetched" /><Stat n={run.stored} label="Stored & scored" /><Stat n={run.new_count} label="New" />
+        <Stat n={run.rejected_irrelevant} label="Rejected: irrelevant" /><Stat n={run.rejected_duplicate} label="Rejected: duplicate" /><Stat n={run.selected_for_review} label="Selected for review (≥40)" />
+        <Stat n={run.emails_found ?? 0} label="Emails found" /><Stat n={run.companies_researched} label="Companies researched" /><Stat n={run.drafts_generated} label="Drafts generated" />
+        <Stat n={fmtUsd(run.cost_usd)} label="API cost" /><Stat n={duration(run.duration_s)} label="Duration" /><Stat n={fmtDate(run.started_at)} label="Started" />
       </div>
-      <div className="scroll">
-        <table><thead><tr><th>Source</th><th>Status</th><th>Fetched</th><th>Detail</th></tr></thead><tbody>
-          {Object.entries(run.source_results ?? {}).map(([k, v]: any) => (
-            <tr key={k}><td>{k}</td><td><span className={`chip ${v.status === "ok" ? "ok" : v.status === "failed" ? "bad" : "warn"}`}>{v.status}</span></td><td>{v.fetched ?? "—"}</td><td>{v.error ?? ""}</td></tr>))}
-        </tbody></table>
-      </div>
+      <Table head={["Source", "Status", "Fetched", "Detail"]}>
+        {Object.entries(run.source_results ?? {}).map(([k, v]: any) => (
+          <tr key={k}><td>{k}</td><td><Chip tone={v.status === "ok" ? "ok" : v.status === "failed" ? "bad" : "warn"}>{v.status}</Chip></td><td>{v.fetched ?? "—"}</td><td>{v.error ?? ""}</td></tr>))}
+      </Table>
       {(run.errors ?? []).map((e: string, i: number) => <div className="alert error" key={i}>{e}</div>)}
       {(run.incomplete_notes ?? []).map((e: string, i: number) => <div className="alert warn" key={i}>Incomplete: {e}</div>)}
       {(run.info_notes ?? []).map((e: string, i: number) => <div className="alert" key={i}>{e}</div>)}
@@ -45,7 +46,7 @@ export default function RunSummary({ run, onChange }: { run: any; onChange?: () 
           {latest && latest.status === "ok" && (
             <p>
               <a href={latest.download_url}>⬇ {latest.filename}</a> · {latest.row_count} rows · created {fmtDate(latest.created_at)}
-              {latest.run_status !== "completed" && <span className="chip warn">run was {latest.run_status}</span>}
+              {latest.run_status !== "completed" && <Chip tone="warn">run was {latest.run_status}</Chip>}
             </p>
           )}
           {emailEx && (

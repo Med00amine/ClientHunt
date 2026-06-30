@@ -40,7 +40,7 @@ def rescore_all(db: Session) -> int:
         o.fit_score, o.fit_explanation, o.portfolio_evidence = sc["total"], sc["explanation"], sc["portfolio_evidence"]
         o.score_components = {"points": sc["components"], "max": sc["max"], "unknown": sc["unknown"], "coverage": sc["data_coverage"]}
         keep_email_action = o.apply_method == "email" and sc["total"] >= 40 and sc["geo"] != "restricted"
-        o.recommended_action = ("Email your application to the address the company published (see Leads); keep it short and specific"
+        o.recommended_action = ("Email your application to the address the company published; keep it short and specific"
                                 if keep_email_action else
                                 recommend(o.listing_status, sc["total"], sc["geo"], any(e["verified"] for e in sc["portfolio_evidence"])))
         n += 1

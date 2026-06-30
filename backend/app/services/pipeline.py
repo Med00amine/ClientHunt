@@ -168,7 +168,7 @@ def process(db: Session, raws: list[RawOpportunity], p: SearchParams, run_id: in
             is_new = True
             stats["new"] += 1
         if ease[2] == "email" and sc["geo"] != "restricted" and sc["total"] >= 40:
-            opp.recommended_action = "Email your application to the address the company published (see Leads); keep it short and specific"
+            opp.recommended_action = "Email your application to the address the company published; keep it short and specific"
         leads.attach_emails(db, opp, raw.description, "listing", now=now, strict=strict_mail)
         db.add(RunOpportunity(run_id=run_id, opportunity_id=opp.id, is_new=is_new, discovered_at=now))
         seen_in_run.add(opp.id)

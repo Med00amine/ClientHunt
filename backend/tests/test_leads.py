@@ -177,6 +177,14 @@ def test_leads_endpoint_filters_and_emails_download(client, db):
     both = client.get("/api/leads?hide_restricted=false").json()
     assert {i["company_name"] for i in both["items"]} == {"Acme", "UsCo"}
     assert len(client.get("/api/leads?has_email=false&hide_restricted=false").json()["items"]) == 3
+    assert len(client.get("/api/leads?has_email=false&hide_restricted=false&source=fake").json()["items"]) == 3
+    assert client.get("/api/leads?has_email=false&hide_restricted=false&source=other").json()["items"] == []
+    nomail = next(i for i in client.get("/api/leads?has_email=false").json()["items"] if i["company_name"] == "NoMail")
+    client.patch(f"/api/opportunities/{nomail['id']}", json={"review_status": "excluded", "exclusion_reason": "test"})
+    gone = {i["company_name"] for i in client.get("/api/leads?has_email=false&hide_restricted=false").json()["items"]}
+    back = {i["company_name"] for i in client.get("/api/leads?has_email=false&hide_restricted=false&show_excluded=true").json()["items"]}
+    assert "NoMail" not in gone and "NoMail" in back                          # excluded listings can be shown again to restore them
+    client.patch(f"/api/opportunities/{nomail['id']}", json={"review_status": "new"})
     ex = client.post("/api/exports/emails").json()
     assert ex["status"] == "ok" and ex["row_count"] == 2
     r = client.get(ex["download_url"])
