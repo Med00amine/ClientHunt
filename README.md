@@ -7,7 +7,7 @@ transparently, researches the client from public sources with evidence, drafts m
 and **Prospects** lets you add the companies, agencies and networks *you* choose to approach.
 **It never sends or submits anything for you.**
 
-![Overview](assets/screenshots/overview.png)
+![Today](assets/screenshots/today.png)
 
 *All screenshots use synthetic demo data: fictional companies, `.example` addresses and a fictional stand-in for the
 Freelancer.com API. Nothing in them is a real opportunity or a real person.*
@@ -51,13 +51,12 @@ of AI (Claude Code).
 
 | | |
 |---|---|
-| **Strategy: today's plan, built from your own data** <br> ![Strategy](assets/screenshots/strategy.png) | **What clients ask for, and the skills your verified work does not show yet** <br> ![What clients ask for](assets/screenshots/strategy-market.png) |
-| **Networks to apply to: their own words, location limits and the bar** <br> ![Networks](assets/screenshots/strategy-networks.png) | **Prospects: companies and agencies you choose, with the mailboxes they published** <br> ![Prospects](assets/screenshots/prospects.png) |
-| **A prospect: where each mailbox came from and what its site says** <br> ![Prospect detail](assets/screenshots/prospect-detail.png) | **Research: pick a search, one click, one download** <br> ![Research](assets/screenshots/research.png) |
-| **Leads: companies hiring now, with the email they published** <br> ![Leads](assets/screenshots/leads.png) | **Live projects: clients who need AI/ML work right now, with competition shown** <br> ![Live projects](assets/screenshots/live-projects.png) |
-| **Transparent score, "easy to reach" signals and published emails** <br> ![Score and emails](assets/screenshots/score-and-emails.png) | **Company research: verbatim quotes with source and time; inferences kept apart** <br> ![Company research](assets/screenshots/company-research.png) |
-| **Proposal draft with rationale, cited portfolio and approval gates** <br> ![Proposal draft](assets/screenshots/proposal-draft.png) | **Runs and exports: one file for everything, per-run files tucked away** <br> ![Runs and exports](assets/screenshots/runs-and-exports.png) |
-| **Pipeline: only what you really sent, with your replies and your own follow-ups** <br> ![Pipeline](assets/screenshots/pipeline.png) |  |
+| **Today: the plan for the day, built from your own data** <br> ![Today](assets/screenshots/today.png) | **What clients ask for, and the skills your verified work does not show yet** <br> ![What clients ask for](assets/screenshots/plan-market.png) |
+| **Networks to apply to: their own words, location limits and the bar** <br> ![Networks](assets/screenshots/plan-networks.png) | **Prospects: companies and agencies you choose, with the mailboxes they published** <br> ![Prospects](assets/screenshots/prospects.png) |
+| **A prospect: where each mailbox came from and what its site says** <br> ![Prospect detail](assets/screenshots/prospect-detail.png) | **Find work: pick a search, one click, and the companies hiring now with the email they published** <br> ![Find work](assets/screenshots/find.png) |
+| **Live projects: clients who need AI/ML work right now, with competition shown** <br> ![Live projects](assets/screenshots/live-projects.png) | **Transparent score, "easy to reach" signals and published emails** <br> ![Score and emails](assets/screenshots/score-and-emails.png) |
+| **Company research: verbatim quotes with source and time; inferences kept apart** <br> ![Company research](assets/screenshots/company-research.png) | **Proposal draft with rationale, cited portfolio and approval gates** <br> ![Proposal draft](assets/screenshots/proposal-draft.png) |
+| **Files and runs: one file for everything, per-run files tucked away** <br> ![Files and runs](assets/screenshots/data-files.png) | **Pipeline: only what you really sent, with your replies and your own follow-ups** <br> ![Pipeline](assets/screenshots/pipeline.png) |
 
 ## What it does
 
