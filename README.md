@@ -66,7 +66,7 @@ of AI (Claude Code).
 | **Strategy** | The **Strategy** tab is the plan for the day, built from what is stored: the open leads to write to (contract and freelance first, never ones restricted to other countries), listings to apply to by link, follow-ups that are due (day 4, day 10, then stop), prospects to read or pitch, and portfolio items still unverified. It counts which skills clients ask for and flags the ones your *verified* work does not show, says which offers you can back with verified work, lists networks with **their own words** and the date they were read, and gives the weekly rhythm, the message shape, a spending plan for a $50-200 budget and an income calculator you can change. Percentages and medians appear only when there is enough data; the hourly rate stays hidden until at least 8 listings state one. |
 | **Prospects** | The **Prospects** tab is for companies, agencies and networks *you* choose. You paste websites; ClientHunt reads their own public pages (robots.txt respected, private addresses refused), keeps verbatim excerpts, finds the role mailboxes they published (same domain only, with page and date) and lists public signs they may need AI/automation/cloud work. A pitch to a published mailbox is unsolicited, so it stays `review_required` unless the site itself invites freelancers or contractors there. Drafts use a fixed offer, your verified portfolio and facts you approved, include an opt-out line, and are never machine-generated. Networks are not scored. |
 | **Leads and emails** | The **Leads** tab lists companies hiring now with the email *they* published (in their hiring post, or a careers/contact mailbox on their own website), plus where and when it was found. Emails are never guessed and never taken from Upwork or Fiverr. Each is `eligible` (the company invited applications there) or `review_required`. Addresses for accommodation requests, fraud reports, privacy or legal questions are rejected, ordinary job boards must contain clear "apply / send your resume" wording, and people advertising *themselves* in a hiring thread are never collected. |
-| **Live projects** | The **Live projects** tab shows open Freelancer.com projects for AI/ML (public API) with budget, number of bids, age and a "chance" score = fit for you − competition + freshness. Freelancer.com's API terms forbid storing its data, so this view is **never saved, exported or added to runs**. You bid there yourself. |
+| **Live projects** | The **Live projects** tab shows clients asking for AI/ML/Python help right now: Hacker News "Seeking freelancer" and contract/part-time "Who is hiring" posts, Mastodon #hiring / #FediHire / #freelance posts that ask for project work, and contract jobs from Remotive, Jobicy and Himalayas (plus Reddit [Hiring] posts if you add free Reddit API keys). The emails clients published are listed as **Name / Email / Company** (downloadable as CSV), each guess marked with where it came from. A "paste any text" box turns a post or an email thread into the same table. People advertising themselves are skipped. The view is **never saved, exported or added to runs**. |
 | **Sources** | Remotive, Remote OK, Himalayas, Jobicy, We Work Remotely, Real Work From Anywhere, the Python Job Board and Hacker News "Who is hiring?"; **alert-email import** (Upwork, Contra, PeoplePerHour, Guru, Wellfound…); manual add. See the table below. |
 | **Saved searches** | Seven presets, including **AI / ML projects: contract & freelance only** (only listings that say so, open to Tunisia, fit ≥ 35) and **Easy to reach: hiring now, apply by email**. Roles restricted to other countries ("UK", "US only", "LATAM, Argentina") are dropped up front. So are on-site and hybrid roles, an explicit country list that does not name Tunisia or a region containing it (`Only: Egypt, South Africa` does not include Tunisia), and a listing whose *text* says "Location: LATAM" or "must be located in the US" even when its location field says "Worldwide". Hiring posts edited to say "CLOSED" are not offered as leads. |
 | Easy to reach | A 0–100 heuristic from visible signals: email to apply (+30), contract/freelance wording (+20), open to any location (+15), posted this week (+10), wants someone soon (+10), small team (+5), several openings (+5); minus for "no contractors/agencies" and location or work-authorisation limits. It shows *why*. It is not a hiring prediction. |
@@ -101,7 +101,7 @@ Put a TLS reverse proxy in front before exposing it beyond your machine, and set
 1. **Research** tab → the saved search **AI / ML projects: contract & freelance only** is preselected → **Run Research** (about 20 seconds).
 2. Click **⬇ Download ALL runs in ONE file (Excel)**. That one file has every run, each opportunity once, with the leads and emails.
 3. **Leads** tab: companies that published an email. Open the original listing first, then *Details / draft* for the score breakdown, company research and a draft.
-4. **Live projects** tab: current Freelancer.com projects with few bids and a fresh posting are the best chance. Open and bid there.
+4. **Live projects** tab: client posts from Hacker News, Mastodon and remote boards, with the emails they published. Open the post and reply or email the client yourself.
 5. Edit and approve a draft, submit it yourself on the platform or by your own email, then click *I submitted this* and track replies in **Pipeline**.
 6. **Strategy** tab: start each session there. It lists today's leads, follow-ups and prospects. Log your own follow-ups in Pipeline ("I followed up") so the next one is counted from the right day.
 7. **Prospects** tab: paste the websites of companies or agencies you want to approach (or press *Track in Prospects* next to a network on the Strategy tab), read the evidence, approve one fact, draft the pitch and send it yourself.
@@ -123,16 +123,17 @@ Checked while building this; terms change, so check them before relying on any r
 | [Real Work From Anywhere](https://www.realworkfromanywhere.com) | public RSS | RSS advertised on the site, robots.txt allows, no terms page found; every role is work-from-anywhere |
 | [Python Job Board](https://www.python.org/jobs/) | public RSS | robots.txt allows; legal pages could not be read; items have no date |
 | [Hacker News](https://hn.algolia.com/api) | Algolia search API, no key | monthly "Who is hiring?" threads; rate limit not verified; the main source of published application emails |
-| [Freelancer.com](https://developers.freelancer.com) | public API, **live view only** | its [API terms](https://www.freelancer.com/about/apiterms) say "You may not copy or store any Data" (cache only, refreshed within 24 h), so projects are shown live and never stored or exported |
+| [Freelancer.com](https://developers.freelancer.com) | not used | its [API terms](https://www.freelancer.com/about/apiterms) say "You may not copy or store any Data" |
+| [Mastodon](https://docs.joinmastodon.org/methods/timelines/#tag) | public API, **live view only** | hashtag timelines on mastodon.social, hachyderm.io and fosstodon.org; only posts that ask for contract, freelance, part-time or project work |
 | Upwork | [API needs approval](https://support.upwork.com/hc/en-us/articles/115015857647-How-to-request-an-API-key-from-Upwork) | scraping is not allowed, so it is used through alert emails you import |
 | Hacker News "Freelancer? Seeking freelancer?" | not used | posted monthly until October 2025; no newer thread exists (checked 2026-10-27), so it is stale |
 | Web search APIs (to find company sites) | not used | [Brave's terms](https://api-dashboard.search.brave.com/terms-of-service) (section 3(b)(i)) forbid to "store, cache, or create a database of Search Results" except transient storage, and this app must keep its evidence; Google's Custom Search JSON API is closed to new customers |
-| Reddit r/forhire | not used | its robots.txt disallows automated access; read it yourself |
+| Reddit r/forhire, r/hiring ... | **optional**, OAuth API only | its robots.txt disallows all other automated access, so Reddit is read only through its [OAuth API](https://www.reddit.com/dev/api) with your own free "script" app (`REDDIT_CLIENT_ID` / `REDDIT_CLIENT_SECRET`); without keys it is left out |
 | TED (EU tenders) | not used | open API, but public tenders need EU-registered bidders and are a poor fit for a solo engineer |
 | Working Nomads | not used | a public JSON feed exists but no terms could be found |
 | Fiverr, PeoplePerHour, Guru, Contra, Wellfound | none verified | no permitted discovery API was found; not scraped |
 
-**More places to look by hand** (Sources & settings lists them with how to use each): Freelancer.com category pages, Upwork,
+**More places to look by hand** (Sources & settings lists them with how to use each): Upwork,
 Contra, PeoplePerHour, Guru, Wellfound, A.Team, Toptal, Braintrust, Turing, Arc, Reddit r/forhire, and Zindi for African AI challenges.
 
 ![More places to look](assets/screenshots/resources.png)
@@ -149,7 +150,7 @@ A natural idea is to collect company names from Upwork and then search for their
 - The original brief for this project said not to scrape Upwork or Fiverr and not to bypass logins, CAPTCHAs or rate limits.
 
 Upwork blocks automated reading of those two pages (HTTP 403), so the summary above comes from search results about them: read the current text yourself.
-What the app does instead: it imports the Upwork **alert emails you already receive**, shows Freelancer.com projects live through its API, lets you name the companies
+What the app does instead: it imports the Upwork **alert emails you already receive**, shows client posts from Hacker News, Mastodon and remote boards live through their APIs, lets you name the companies
 and agencies to read under **Prospects**, and lists the hiring posts whose company published its own address.
 
 ## Safe by design
@@ -161,7 +162,7 @@ and agencies to read under **Prospects**, and lists the hiring posts whose compa
   deletes a contact but keeps a suppression entry.
 - Retrieved pages, feeds, job posts and files are treated as untrusted data: XML is parsed with `defusedxml`, HTML is reduced to text,
   and only `http(s)` links are ever stored or clickable. Instructions inside them are never followed.
-- Platform terms are respected: Freelancer.com data is never stored, Reddit is not read, Upwork and Fiverr are not scraped.
+- Platform terms are respected: Freelancer.com is not used, Reddit is read only through its OAuth API with your own keys, Upwork and Fiverr are not scraped.
 - A **prospect** is always a site *you* named. Only public http(s) addresses are accepted (localhost, private ranges, credentials and non-web links are refused), the site is read with
   the same SSRF-safe, robots.txt-respecting fetcher, and mailboxes are taken only from the company's own domain and only role names (`contact@`, `partners@`, `jobs@` ...), never a named person.
   A published mailbox is not permission to market: a pitch there stays `review_required`, carries an opt-out line, and is written without a model.
@@ -177,7 +178,7 @@ cd frontend && npx vitest run                        # 48 passed
 cd frontend && npx playwright test                   # 1 passed (login → import → leads → one-file Excel → live projects → draft → approve → record → strategy → prospect → pitch → follow-up)
 ```
 
-Tests use synthetic data and mocked HTTP (a stub stands in for Freelancer.com). No real email or application is ever sent.
+Tests use synthetic data and mocked HTTP (stubs stand in for Hacker News, Reddit, Mastodon and the boards). No real email or application is ever sent.
 The app was also run against the real public sources: all eight stored sources answered, the one-file workbook opened with
 every sheet, and Docker Compose with PostgreSQL started, applied the four migrations, enforced login and served the Prospects and Strategy
 endpoints (migration 0004 was also run on a PostgreSQL that already held a row).
@@ -191,14 +192,14 @@ endpoints (migration 0004 was also run on a PostgreSQL that already held a row).
 - A source shows `failed`: read its error on the run card, then use *Retry run*. Transient errors are already retried 3 times.
 - Remotive, Jobicy and the feeds return the same results for hours: intentional, they are cached to respect their polling limits.
 - A source shows `unavailable`: it needs authorisation or has no permitted API. Use Alert import.
-- Live projects says Freelancer.com asked us to slow down: wait a few minutes; results are cached for 15 minutes.
+- Live projects shows a source as "unavailable right now": it asked us to slow down or is down; it is asked again after a few minutes and the other sources still answer. Results are cached for 15 minutes.
 - Export failed: check free disk space and permissions of `exports/`, then *Retry export* (this creates a new file).
 
 ## Limitations
 
 - **Few worldwide contract/freelance AI/ML listings exist on free boards.** A real run fetched about 1,500 listings and kept about 10 that
-  say contract or freelance, are open to Tunisia and match AI/ML. Freelancer.com has many more projects, but typically dozens to hundreds of bids
-  each and many low budgets; that is why the Live projects tab shows competition. No number of leads or clients is promised.
+  say contract or freelance, are open to Tunisia and match AI/ML. The Live projects tab adds client posts from Hacker News and Mastodon, which are fewer but
+  often come with a direct email. No number of leads or clients is promised.
 - **Emails** are only those a company published itself. In the Hacker News thread about 1 in 3 of the Python-related posts carried one; the other boards mostly use apply links.
   Website discovery (careers/contact mailboxes) only runs when the company website is known. An address is checked for format only;
   the app cannot tell you that it works or that anyone will answer. Detection of "this address is for applying" is rule-based and can

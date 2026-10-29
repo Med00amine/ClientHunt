@@ -5,6 +5,10 @@ class LoginIn(BaseModel):
     password: str
 
 
+class ExtractIn(BaseModel):
+    text: str = Field(max_length=200_000)
+
+
 class SearchIn(BaseModel):
     name: str = Field(default="Ad-hoc search", max_length=120)
     keywords: list[str] = Field(default_factory=list, max_length=20)

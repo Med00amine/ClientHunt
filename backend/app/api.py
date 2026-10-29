@@ -23,6 +23,7 @@ from .models import (Application, BusinessContact, Company, Conversation, Eviden
 from .portfolio import load_portfolio, save_portfolio
 from .scoring import effective_geo, recommend, score
 from .services import alerts as alerts_svc
+from .services import emailtable
 from .services import live as live_svc
 from .services import contacts as contacts_svc
 from .services import leads as leads_svc
@@ -783,16 +784,19 @@ def suppress(body: schemas.SuppressIn, db: Session = Depends(get_db)):
 
 
 # ---------------------------------------------------------------- live view (never stored)
-@router.get("/live/freelancer")
-def live_freelancer(q: str = Query("", max_length=300), min_usd: float = Query(0, ge=0), min_hourly_usd: float = Query(0, ge=0), max_bids: int = Query(0, ge=0, le=1000),
-                    kind: str = Query("", pattern="^(|fixed|hourly)$"), sort: str = Query("best", pattern="^(best|newest|fewest_bids)$"),
-                    limit: int = Query(40, ge=1, le=100)):
-    """Open Freelancer.com projects, fetched live. Nothing is written to the database, exports or disk."""
-    queries = [x for x in (t.strip() for t in q.split(",")) if x] or None
-    try:
-        return live_svc.search_projects(queries, min_usd, max_bids, kind, sort, limit, min_hourly_usd=min_hourly_usd)
-    except live_svc.LiveSourceError as e:
-        raise HTTPException(502, str(e))
+@router.get("/live/projects")
+def live_projects(q: str = Query("", max_length=500), sources: str = Query("", max_length=100),
+                  subreddits: str = Query("", max_length=300), only_email: bool = False,
+                  sort: str = Query("best", pattern="^(best|newest)$"), limit: int = Query(60, ge=1, le=200)):
+    """Client posts from Hacker News and Reddit, fetched live, with the emails they published. Nothing is stored."""
+    split = lambda v: [x for x in (t.strip() for t in v.split(",")) if x] or None  # noqa: E731
+    return live_svc.search_projects(split(q), split(sources), sort, only_email, limit, split(subreddits))
+
+
+@router.post("/tools/extract-emails")
+def extract_emails_tool(body: schemas.ExtractIn):
+    """Name / Email / Company rows for every address written in a pasted text. Nothing is stored."""
+    return {"rows": emailtable.contact_rows(body.text)}
 
 
 # ---------------------------------------------------------------- portfolio / usage / admin

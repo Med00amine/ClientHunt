@@ -179,10 +179,10 @@ def test_strict_engagement_filter():
 def test_new_sources_and_ai_ml_preset_are_seeded(db):
     from app.models import SearchProfile
     keys = {s.key: s for s in db.scalars(select(Source))}
-    for k in ("jobicy", "wwr", "pythonorg", "freelancer_live"):
+    for k in ("jobicy", "wwr", "pythonorg", "hn_live", "reddit_live"):
         assert k in keys
-    assert keys["freelancer_live"].kind == "live" and keys["freelancer"].kind == "unavailable"
-    assert "copy or store" in keys["freelancer_live"].notes
+    assert "freelancer_live" not in keys and keys["freelancer"].kind == "unavailable"
+    assert keys["reddit_live"].kind == "live" and "REDDIT_CLIENT_ID" in keys["reddit_live"].notes
     prof = {p.name: p for p in db.scalars(select(SearchProfile))}
     ai = prof["AI / ML projects: contract & freelance only"]
     assert ai.params["strict_engagement"] is True and ai.params["min_fit"] == 35.0
@@ -204,7 +204,14 @@ def test_freelancer_stored_adapter_refuses_and_points_to_live_view(db):
     a = registry["freelancer"](db)
     with pytest.raises(AdapterUnavailable) as e:
         a.fetch(SearchParams())
-    assert "Live projects" in str(e.value) and "store" in str(e.value)
+    assert "Live" in str(e.value) and "store" in str(e.value) and "Hacker News" in str(e.value)
+
+
+def test_seed_removes_the_retired_freelancer_live_source(db):
+    db.add(Source(key="freelancer_live", name="old", kind="live", enabled=True, verified=True, notes=""))
+    db.commit()
+    presets.seed(db)
+    assert db.scalar(select(Source).where(Source.key == "freelancer_live")) is None
 
 
 @pytest.mark.parametrize("bad", ["javascript:alert(1)", "data:text/html,<script>alert(1)</script>", "file:///etc/passwd", "ftp://x.example/a", "//evil.example/x", " "])

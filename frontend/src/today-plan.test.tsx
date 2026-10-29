@@ -251,7 +251,7 @@ test("plan: a server error is shown with a retry", async () => {
 
 // ---------------------------------------------------------------- Find: two views of one job
 test("find: Listings and Live projects switch through the shell, not through the page", async () => {
-  serve({ "/live/freelancer": { queries: [], total_matches: 0, items: [], cached_for_minutes: 15, notice: "x" }, "/leads": { total: 0, emails: [], items: [] }, "/profiles": [], "/sources": [], "/runs": [] });
+  serve({ "/live/projects": { queries: [], sources: {}, errors: [], total_matches: 0, items: [], emails: [], cached_for_minutes: 15, notice: "x" }, "/leads": { total: 0, emails: [], items: [] }, "/profiles": [], "/sources": [], "/runs": [] });
   const { ctx, unmount } = renderApp(<Find sub="" />);
   expect(await screen.findByRole("button", { name: "Run search" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Listings" })).toHaveAttribute("aria-current", "page");
@@ -259,7 +259,7 @@ test("find: Listings and Live projects switch through the shell, not through the
   expect(ctx.go).toHaveBeenCalledWith("find", "live");
   unmount();
   renderApp(<Find sub="live" />);
-  expect(await screen.findByText(/do not allow storing its data/)).toBeInTheDocument();
+  expect(await screen.findByText(/Nothing is stored/)).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Run search" })).not.toBeInTheDocument();
 });
 
@@ -269,7 +269,7 @@ const OPP = { id: 5, title: "Contract Python engineer", url: "https://news.ycomb
   posted_at: null, deadline: null, location_requirements: "", recommended_action: "", ease_score: 0, ease_signals: [], contacts: [], drafts: [], application: null, required_skills: [],
   matched_skills: [], missing_requirements: [], portfolio_evidence: [], description: "", company: null, evidence: [], history: [] };
 const shellServer = () => serve({ "/auth/me": { authenticated: true }, "/overview": overview(), "/strategy": STRATEGY(), "/export/all/counts": COUNTS, "/opportunities/5": OPP,
-  "/live/freelancer": { queries: [], total_matches: 0, items: [], cached_for_minutes: 15, notice: "x" }, "/leads": { total: 0, emails: [], items: [] }, "/sources": [], "/applications": [], "/prospects": { total: 0, items: [] } });
+  "/live/projects": { queries: [], sources: {}, errors: [], total_matches: 0, items: [], emails: [], cached_for_minutes: 15, notice: "x" }, "/leads": { total: 0, emails: [], items: [] }, "/sources": [], "/applications": [], "/prospects": { total: 0, items: [] } });
 beforeEach(() => { location.hash = ""; });
 
 test("shell: six tabs in the order you work, Today first and marked as the current page", async () => {
@@ -289,7 +289,7 @@ test("shell: where you are is in the address, so a reload or the Back button kee
   await waitFor(() => expect(location.hash).toBe("#/find"));
   fireEvent.click(await screen.findByRole("button", { name: "Live projects" }));
   await waitFor(() => expect(location.hash).toBe("#/find/live"));
-  expect(await screen.findByText(/do not allow storing its data/)).toBeInTheDocument();
+  expect(await screen.findByText(/Nothing is stored/)).toBeInTheDocument();
   expect(within(nav).getByRole("button", { name: "Find work" })).toHaveAttribute("aria-current", "page");
   location.hash = "#/data/sources";                                                                // what Back, a bookmark or a reload does
   expect(await screen.findByText("Import an alert email")).toBeInTheDocument();

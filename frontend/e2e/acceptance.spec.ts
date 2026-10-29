@@ -101,16 +101,18 @@ test("login, empty dashboard, import, draft, approve, record, CSV download", asy
   const [cdl] = await Promise.all([page.waitForEvent("download"), page.getByRole("link", { name: /or as one CSV/ }).click()]);
   expect(fs.readFileSync((await cdl.path())!, "utf-8")).toContain("jobs@acme.example");
 
-  // Live projects (stubbed Freelancer API): shown, ranked by chance, never stored
+  // Live projects (stubbed Hacker News API): client posts with their Name / Email / Company, never stored
   await tab(page, "Find work");
   await page.getByRole("button", { name: "Live projects" }).click();
-  await expect(page.getByText(/do not allow storing its data/)).toBeVisible();
-  await expect(page.getByRole("link", { name: /Stub LLM support agent/ })).toHaveAttribute("href", "https://www.freelancer.com/projects/machine-learning/Stub-LLM-support-agent-9001");
-  await expect(page.getByText("few bids", { exact: true })).toBeVisible();
-  await page.getByText("Budget filters").click();
-  await page.getByLabel("min hourly rate").fill("0");
-  await page.getByRole("button", { name: "Search", exact: true }).click();
-  await expect(page.getByText("crowded", { exact: true })).toBeVisible();
+  await expect(page.getByText(/Nothing is stored/)).toBeVisible();
+  await expect(page.getByRole("link", { name: /Stub LLM support agent/ })).toHaveAttribute("href", "https://news.ycombinator.com/item?id=9001");
+  await expect(page.getByText("Client emails (1)")).toBeVisible();
+  await expect(page.getByRole("cell", { name: "Dana Stub" })).toBeVisible();
+  await expect(page.getByText("me@seeker.example")).toHaveCount(0);                       // people advertising themselves are skipped
+  await page.getByText(/Find the client emails in any text/).click();
+  await page.getByLabel("text to search for emails").fill("Contact Omar Haddad <omar@datawise.example> to apply.");
+  await page.getByRole("button", { name: "Find emails" }).click();
+  await expect(page.getByRole("cell", { name: "Omar Haddad" })).toBeVisible();
   await page.getByRole("button", { name: "Listings" }).click();
   await page.getByLabel(/only with an email/).uncheck();                                   // every stored listing, not just the ones with an email
   await page.getByText("More filters").click();

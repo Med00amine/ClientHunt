@@ -60,7 +60,7 @@ CHANNELS = [
      "how": ["Open the listing, read the post, approve one fact from the company's page, edit the draft and send it yourself.",
              "Newest posts first: Find work shows the post date."]},
     {"key": "marketplace", "name": "Small paid projects on marketplaces", "tab": "Live projects", "share": 25,
-     "what": "Projects posted on Freelancer.com (Find work → Live projects, never stored) and Upwork (alert emails you import).",
+     "what": "Clients asking for help on Hacker News and Reddit (Find work → Live projects, with the emails they published) and Upwork (alert emails you import).",
      "why": "The shortest road to a first paid project and a first review.",
      "honest": "Crowded: Live projects shows how many bids a project already has. Choose projects with few bids and a clear scope, and answer their exact question first.",
      "how": ["Filter by minimum budget and maximum bids, open the project, propose a concrete first step.",
@@ -186,7 +186,7 @@ WHY_NOT_UPWORK = {
     ],
     "instead": [
         "Import the Upwork alert emails you already receive (Data → Sources), so Upwork projects enter the app through its own notifications.",
-        "Find work → Live projects shows Freelancer.com projects through its API without storing them.",
+        "Find work → Live projects reads Hacker News and Reddit hiring posts through their APIs without storing them.",
         "Prospects: you name the companies and agencies; the app reads their own public sites and lists the mailboxes they published.",
         "Find work: hiring posts whose company published its own address to receive applications.",
     ],

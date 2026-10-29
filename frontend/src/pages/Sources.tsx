@@ -6,8 +6,6 @@ import { Async, useLoad } from "../hooks";
 import { Chip, Fold, Msg, Notice, Table } from "../ui";
 
 const RESOURCES = [
-  { name: "Freelancer.com: machine learning", url: "https://www.freelancer.com/jobs/machine-learning/", what: "Clients post AI/ML projects every day (see Find work → Live projects for a ranked, live view).", how: "Bid on the site. Many bids per project: pick fresh ones with few bids." },
-  { name: "Freelancer.com: artificial intelligence", url: "https://www.freelancer.com/jobs/artificial-intelligence/", what: "The AI category of the same marketplace.", how: "Turn on its email alerts, then paste them into the import box above." },
   { name: "Upwork", url: "https://www.upwork.com/freelance-jobs/machine-learning/", what: "The largest marketplace. Scraping is not allowed and its API needs approval.", how: "Save a search, turn on email alerts, paste the alert text into the import box above." },
   { name: "Contra", url: "https://contra.com/opportunities", what: "Independent-professional marketplace with open opportunities.", how: "Browse and apply on the site; use its notifications." },
   { name: "PeoplePerHour", url: "https://www.peopleperhour.com/freelance-jobs/technology-programming", what: "UK-based freelance marketplace, programming category.", how: "Use its email alerts and paste them into the import box above." },

@@ -30,16 +30,25 @@ SOURCES = [
     dict(key="hn_hiring", name="Hacker News: Who is hiring?", kind="api", enabled=True, verified=False,
          docs_url="https://hn.algolia.com/api", terms_url="https://hn.algolia.com/api",
          notes="Algolia HN API, no key. Exact rate limit not verified. Comments are untrusted free text. Many posts publish an application email."),
-    dict(key="freelancer_live", name="Freelancer.com: live projects (not stored)", kind="live", enabled=True, verified=True,
-         docs_url="https://developers.freelancer.com", terms_url="https://www.freelancer.com/about/apiterms",
-         notes="Public API, no login. Its API terms say 'You may not copy or store any Data' (caching only, refreshed within 24 h), so projects are shown live under Find work → Live projects and are never saved, exported or added to runs. Bid on Freelancer.com yourself."),
+    dict(key="hn_live", name="Hacker News: Seeking freelancer + contract posts (live, not stored)", kind="live", enabled=True,
+         verified=False, docs_url="https://hn.algolia.com/api", terms_url="https://hn.algolia.com/api",
+         notes="Algolia HN API, no key. Shown under Find work → Live projects with the emails clients published. Only 'SEEKING FREELANCER' and contract/part-time posts; people advertising themselves are skipped."),
+    dict(key="reddit_live", name="Reddit: [Hiring] posts (live, not stored)", kind="live", enabled=True, verified=False,
+         docs_url="https://www.reddit.com/dev/api", terms_url="https://redditinc.com/policies/data-api-terms",
+         notes="Optional. Reddit's robots.txt disallows all automated access, so only its OAuth API is used, and only with a free 'script' app (REDDIT_CLIENT_ID / REDDIT_CLIENT_SECRET in .env). Without keys Reddit is left out. Only [Hiring] posts; [For Hire] posts are skipped."),
+    dict(key="mastodon_live", name="Mastodon: #hiring, #FediHire, #freelance (live, not stored)", kind="live", enabled=True, verified=False,
+         docs_url="https://docs.joinmastodon.org/methods/timelines/#tag", terms_url="",
+         notes="Public hashtag timelines through the Mastodon API, no key. Only posts that ask for contract, freelance, part-time or project work; people advertising themselves and permanent jobs are skipped."),
+    dict(key="boards_live", name="Remotive, Jobicy, Himalayas: contract jobs (live, not stored)", kind="live", enabled=True, verified=False,
+         docs_url="https://remotive.com/api-documentation", terms_url="",
+         notes="Contract, freelance and part-time jobs only, polled within each board's stated limit (Remotive 6 h, Jobicy 1 h, Himalayas 12 h). Remotive asks that emails are not collected, so its posts show none."),
     dict(key="upwork", name="Upwork (official API)", kind="unavailable", enabled=False, verified=True,
          docs_url="https://support.upwork.com/hc/en-us/articles/115015857647-How-to-request-an-API-key-from-Upwork",
          terms_url="https://support.upwork.com/hc/en-us/articles/43342677368467-Use-bots-and-other-automation-properly",
          notes="API needs approval (reported $25k/JSS 90% thresholds, non-commercial). Scraping prohibited. Use saved-search email alerts and import them under Data → Sources."),
     dict(key="freelancer", name="Freelancer.com (stored in runs)", kind="unavailable", enabled=False, verified=True,
          docs_url="https://developers.freelancer.com", terms_url="https://www.freelancer.com/about/apiterms",
-         notes="Not part of runs or exports: the API terms forbid storing its data. Use Find work → Live projects."),
+         notes="Not used: the API terms forbid storing its data."),
     dict(key="alerts", name="Job-alert emails (Upwork, Contra, PeoplePerHour, Guru, Wellfound...)", kind="alert", enabled=True,
          verified=True, notes="Paste or upload alert emails; parsed locally. You apply on the platform yourself."),
     dict(key="manual", name="Manual entry", kind="manual", enabled=True, verified=True,
@@ -68,7 +77,12 @@ PROFILES = {
 }
 
 
+RETIRED = {"freelancer_live"}
+
+
 def seed(db: Session) -> None:
+    for old in db.scalars(select(Source).where(Source.key.in_(RETIRED))):
+        db.delete(old)
     for s in SOURCES:
         row = db.scalar(select(Source).where(Source.key == s["key"]))
         if not row:

@@ -1,129 +1,221 @@
-import time
-
 import httpx
 import pytest
 from sqlalchemy import text
 
 from app.config import get_settings
 from app.db import engine
-from app.services import live
+from app.services import emailtable, live
 from .conftest import *  # noqa: F401,F403  (fixtures)
 
 NOW = 1793050000
 
 
-def project(pid, title, kind="fixed", lo=100, hi=300, code="USD", rate=1.0, bids=5, age_min=30, status="active",
-            nonpublic=False, jobs=("Python", "Machine Learning (ML)"), desc="Build a machine learning pipeline in Python."):
-    return {"id": pid, "title": title, "seo_url": f"machine-learning/{title.replace(' ', '-')}-{pid}", "type": kind,
-            "status": status, "frontend_project_status": "open", "nonpublic": nonpublic, "deleted": False,
-            "budget": {"minimum": lo, "maximum": hi}, "currency": {"code": code, "sign": "$", "exchange_rate": rate},
-            "bid_stats": {"bid_count": bids, "bid_avg": 150.0}, "time_submitted": NOW - age_min * 60,
-            "jobs": [{"id": i, "name": n} for i, n in enumerate(jobs)], "description": desc, "language": "en", "urgent": False}
+def hn_comment(cid, story, body, age_min=60):
+    return {"objectID": str(cid), "parent_id": story, "comment_text": body, "created_at_i": NOW - age_min * 60}
 
 
-def api(payload_by_query):  # noqa: E302
-    calls = []
+def reddit_post(pid, title, body="", flair="", author="acme_cto", age_min=30):
+    return {"kind": "t3", "data": {"id": pid, "title": title, "selftext": body, "link_flair_text": flair, "author": author,
+                                   "permalink": f"/r/forhire/comments/{pid}/x/", "created_utc": NOW - age_min * 60, "subreddit": "forhire"}}
+
+
+FREELANCE_THREAD = {"objectID": "500", "title": "Ask HN: Freelancer? Seeking freelancer? (October 2026)", "num_comments": 40, "created_at_i": NOW - 86400}
+HIRING_THREAD = {"objectID": "600", "title": "Ask HN: Who is hiring? (October 2026)", "num_comments": 400, "created_at_i": NOW - 86400}
+FREELANCE_COMMENTS = [
+    hn_comment(1, 500, "SEEKING FREELANCER | Acme Labs | Remote<p>We need an LLM engineer to build a RAG chatbot in Python. "
+                       "Email Jane Doe at jane.doe@acmelabs.io with your portfolio."),
+    hn_comment(2, 500, "SEEKING WORK | Berlin | Remote<p>I build LLM apps. Email me: me@freelancer-person.example.net"),
+    hn_comment(3, 500, "SEEKING FREELANCER | Paint Co<p>We need a house painter."),        # no query word
+]
+HIRING_COMMENTS = [
+    hn_comment(10, 600, "Rebar | Applied AI Engineer | REMOTE | Contract<p>LLM agents with FastAPI on AWS. Apply: john@withrebar.ai"),
+    hn_comment(11, 600, "BigCo | ML Engineer | ONSITE | Full-time<p>Machine learning at scale. jobs@bigco.example.org"),
+]
+REDDIT = [
+    reddit_post("a1", "[Hiring] Python dev for an AI agent", "Need a GPT agent. Budget $2k. Contact sam@shopify-store.co"),
+    reddit_post("a2", "[For Hire] ML engineer available", "Hire me: ml@me.example.net"),
+    reddit_post("a3", "Need help with OpenAI integration", "DM me", flair="Hiring"),
+]
+def toot(sid, html, acct="studio@mas.example", tag_age_min=90):
+    return {"id": sid, "uri": f"https://mas.example/statuses/{sid}", "url": f"https://mas.example/@studio/{sid}", "content": html,
+            "created_at": "2026-10-28T09:00:00.000Z", "account": {"acct": acct}, "sensitive": False, "reblog": None}
+
+
+MASTODON = [
+    toot("m1", "<p>We're looking for a freelance Python developer to build an LLM agent. Contract, ~3 weeks. #hiring</p>"),
+    toot("m2", "<p>I'm available for freelance LLM projects! #OpenToWork #hiring</p>"),              # self-promotion
+    toot("m3", "<p>BigCorp is hiring a Staff ML Engineer. Full-time, on-site. #hiring</p>"),        # permanent job
+]
+REMOTIVE = {"jobs": [
+    {"id": 7, "url": "https://remotive.com/remote-jobs/7", "title": "Contract ML Engineer", "company_name": "Datafy",
+     "description": "<p>Machine learning contract. Email hr@datafy.example.io</p>", "publication_date": "2026-10-27T10:00:00", "job_type": "contract"},
+    {"id": 8, "url": "https://remotive.com/remote-jobs/8", "title": "ML Engineer", "company_name": "Perm", "description": "machine learning",
+     "publication_date": "2026-10-27T10:00:00", "job_type": "full_time"}]}
+JOBICY = {"jobs": [{"id": 9, "url": "https://jobicy.com/jobs/9", "jobTitle": "Part-time Python AI developer", "companyName": "Tiny",
+                    "jobDescription": "Python and AI", "pubDate": "2026-10-26 10:00:00", "jobType": ["Part-Time"]}]}
+
+
+def transport(calls=None, reddit_status=200, listing_status=200):
     def h(req):
-        calls.append(dict(req.url.params))
-        projs = payload_by_query.get(req.url.params["query"], [])
-        return httpx.Response(200, json={"status": "success", "result": {"projects": projs, "total_count": len(projs)}})
-    return httpx.Client(transport=httpx.MockTransport(h)), calls
+        if calls is not None:
+            calls.append(str(req.url))
+        u, p = req.url, dict(req.url.params)
+        if u.host == "hn.algolia.com":
+            if p.get("query") == '"Seeking freelancer"':
+                return httpx.Response(200, json={"hits": [FREELANCE_THREAD]})
+            if p.get("query") == '"Who is hiring"':
+                return httpx.Response(200, json={"hits": [HIRING_THREAD]})
+            story = p.get("tags", "").split("story_")[-1]
+            hits = FREELANCE_COMMENTS if story == "500" else HIRING_COMMENTS if story == "600" else []
+            return httpx.Response(200, json={"hits": hits, "nbPages": 1})
+        if u.path == "/api/v1/access_token":
+            return httpx.Response(reddit_status, json={"access_token": "tok", "expires_in": 3600})
+        if u.host == "oauth.reddit.com":
+            assert req.headers["Authorization"] == "Bearer tok"
+            return httpx.Response(listing_status, json={"data": {"children": REDDIT if "forhire" in u.path else []}})
+        if "/api/v1/timelines/tag/" in u.path:
+            return httpx.Response(200, json=MASTODON if (u.host, u.path.rsplit("/", 1)[-1]) == ("mastodon.social", "hiring") else [])
+        if u.host == "remotive.com":
+            return httpx.Response(200, json=REMOTIVE)
+        if u.host == "jobicy.com":
+            return httpx.Response(200, json=JOBICY)
+        if u.host == "himalayas.app":
+            return httpx.Response(200, json={"jobs": []})
+        return httpx.Response(404)
+    return httpx.Client(transport=httpx.MockTransport(h))
 
 
 @pytest.fixture(autouse=True)
-def fresh():
+def fresh(monkeypatch):
     live.clear_cache()
+    monkeypatch.setattr(get_settings(), "reddit_client_id", "id")
+    monkeypatch.setattr(get_settings(), "reddit_client_secret", "secret")
     yield
     live.clear_cache()
 
 
-def test_merges_dedupes_shapes_and_computes_fit_and_usd():
-    c, calls = api({"llm": [project(1, "LLM agent", lo=500, hi=1500, bids=3, age_min=10),
-                            project(2, "Old crowded", bids=120, age_min=600, code="INR", rate=0.012, lo=1000, hi=5000)],
-                    "nlp": [project(1, "LLM agent"), project(3, "NLP classifier", kind="hourly", lo=20, hi=40, bids=25)]})
-    out = live.search_projects(["llm", "nlp"], client=c, now=NOW)
-    assert [x["id"] for x in out["items"]] and {x["id"] for x in out["items"]} == {1, 2, 3}      # id 1 only once
-    assert len(calls) == 2 and calls[0]["limit"] == "50" and calls[0]["full_description"] == "true"
-    by = {x["id"]: x for x in out["items"]}
-    assert by[1]["competition"] == "few bids" and by[3]["competition"] == "some bids" and by[2]["competition"] == "crowded"
-    assert by[2]["budget_max_usd"] == 60.0 and by[2]["currency"] == "INR"
-    assert by[1]["url"].startswith("https://www.freelancer.com/projects/") and by[1]["age_minutes"] == 10
-    assert 0 <= by[1]["fit"] <= 100 and "machine learning" in by[1]["matched_skills"]
-    assert "not saved" in out["notice"] and "Bid on Freelancer.com yourself" in out["notice"]
+def test_client_posts_from_all_sources_with_their_emails():
+    out = live.search_projects(None, client=transport(), now=NOW)
+    by = {r["id"]: r for r in out["items"]}
+    assert set(by) == {"hn_freelance:1", "hn_hiring:10", "reddit:a1", "reddit:a3", "mastodon:https://mas.example/statuses/m1",
+                       "boards:remotive:7", "boards:jobicy:9"}
+    # never collected: people advertising themselves (hn 2, reddit a2, toot m2), full-time jobs (hn 11, toot m3,
+    # remotive 8) and posts that match no search word (hn 3)
+    jane = by["hn_freelance:1"]["emails"][0]
+    assert (jane["name"], jane["email"], jane["company"]) == ("Jane Doe", "jane.doe@acmelabs.io", "Acme Labs")
+    assert by["reddit:a1"]["url"] == "https://www.reddit.com/r/forhire/comments/a1/x/" and by["reddit:a1"]["poster"] == "u/acme_cto"
+    assert by["reddit:a3"]["emails"] == []
+    assert by["boards:remotive:7"]["emails"] == [] and by["boards:remotive:7"]["source_name"] == "Remotive"   # Remotive: no emails
+    assert by["mastodon:https://mas.example/statuses/m1"]["source_name"] == "Mastodon #hiring"
+    assert {e["email"] for e in out["emails"]} == {"jane.doe@acmelabs.io", "john@withrebar.ai", "sam@shopify-store.co"}
+    assert out["errors"] == [] and all(s["ok"] for s in out["sources"].values())
+    assert out["sources"]["boards"]["matching"] == 2
+    assert not any("freelancer.com" in r["url"] for r in out["items"])
 
 
-def test_nothing_is_stored_anywhere(db):
-    tables = [t for t in __import__("app.db", fromlist=["Base"]).Base.metadata.sorted_tables]
+def test_only_email_sorting_and_source_choice():
+    c = transport()
+    assert all(r["emails"] for r in live.search_projects(None, only_email=True, client=c, now=NOW)["items"])
+    hn_only = live.search_projects(None, sources=["hn_freelance"], client=c, now=NOW)
+    assert [r["id"] for r in hn_only["items"]] == ["hn_freelance:1"] and set(hn_only["sources"]) == {"hn_freelance"}
+    ages = [r["age_minutes"] for r in live.search_projects(None, sort="newest", client=c, now=NOW)["items"]]
+    assert ages == sorted(ages)
+
+
+def test_without_keys_reddit_is_left_out_silently_and_never_contacted(monkeypatch):
+    monkeypatch.setattr(get_settings(), "reddit_client_id", "")
+    calls: list[str] = []
+    out = live.search_projects(None, client=transport(calls), now=NOW)
+    assert out["reddit_configured"] is False and "reddit" not in out["sources"] and out["errors"] == []
+    assert not any("reddit.com" in c for c in calls)            # robots.txt disallows it: no request at all
+    assert out["items"] and all(r["source"] != "reddit" for r in out["items"])
+
+
+def test_a_busy_source_is_reported_quietly_and_not_asked_again_at_once():
+    calls: list[str] = []
+    c = transport(calls, listing_status=429)
+    listing = lambda: len([x for x in calls if "oauth.reddit.com" in x])  # noqa: E731
+    out = live.search_projects(None, client=c, now=NOW)
+    assert out["sources"]["reddit"]["ok"] is False and "busy" in out["sources"]["reddit"]["error"]
+    assert out["sources"]["hn_freelance"]["ok"] and out["items"]                # the others still answer
+    n = listing()
+    live.search_projects(None, sources=["reddit"], client=c, now=NOW + 30)
+    assert listing() == n                                                       # backs off instead of hammering
+    live.search_projects(None, sources=["reddit"], client=c, now=NOW + live.BUSY_SECONDS + 1)
+    assert listing() == n + 1
+
+
+def test_reddit_bad_keys_are_explained():
+    out = live.search_projects(None, sources=["reddit"], client=transport(reddit_status=401), now=NOW)
+    assert out["items"] == [] and "refused the app credentials" in out["errors"][0]
+
+
+def test_cache_is_short_lived_and_nothing_is_stored(db):
+    tables = __import__("app.db", fromlist=["Base"]).Base.metadata.sorted_tables
     def counts():
         with engine.connect() as con:
             return {t.name: con.execute(text(f"select count(*) from {t.name}")).scalar() for t in tables}
-    before, files_before = counts(), sorted(p.name for p in get_settings().exports_dir.glob("*"))
-    c, _ = api({"llm": [project(1, "LLM agent")]})
-    live.search_projects(["llm"], client=c, now=NOW)
-    assert counts() == before                                                    # no database rows
-    assert sorted(p.name for p in get_settings().exports_dir.glob("*")) == files_before   # no export files
+    before = counts()
+    calls: list[str] = []
+    c = transport(calls)
+    live.search_projects(None, sources=["hn_freelance", "hn_hiring", "reddit", "mastodon"], client=c, now=NOW)
+    n = len(calls)
+    live.search_projects(None, sources=["hn_freelance", "hn_hiring", "reddit", "mastodon"], client=c, now=NOW + 60)
+    assert len(calls) == n                                     # served from memory
+    live.search_projects(None, sources=["hn_freelance", "hn_hiring", "reddit", "mastodon"], client=c, now=NOW + live.CACHE_SECONDS + 1)
+    assert len(calls) > n
+    assert counts() == before
 
 
-def test_cache_is_short_lived_and_below_the_24h_the_terms_allow():
-    assert live.CACHE_SECONDS <= 60 * 60 * 24 and live.CACHE_SECONDS == 15 * 60
-    c, calls = api({"llm": [project(1, "A")]})
-    live.search_projects(["llm"], client=c, now=NOW)
-    live.search_projects(["llm"], client=c, now=NOW + 60)
-    assert len(calls) == 1                                                       # served from memory
-    live.search_projects(["llm"], client=c, now=NOW + live.CACHE_SECONDS + 1)
-    assert len(calls) == 2                                                       # refreshed after the TTL
+def test_boards_keep_their_own_longer_polling_limits():
+    calls: list[str] = []
+    c = transport(calls)
+    live.search_projects(None, sources=["boards"], client=c, now=NOW)
+    live.search_projects(None, sources=["boards"], client=c, now=NOW + 2 * 3600)
+    assert len([x for x in calls if "remotive.com" in x]) == 1  # Remotive: at most every 6 h
+    assert len([x for x in calls if "jobicy.com" in x]) == 2    # Jobicy: hourly
 
 
-def test_filters_and_sorting():
-    c, _ = api({"q": [project(1, "Cheap crowded", lo=10, hi=20, bids=150, age_min=5), project(2, "Good few bids", lo=500, hi=900, bids=2, age_min=90),
-                      project(3, "Hourly mid", kind="hourly", lo=20, hi=40, bids=30, age_min=45),
-                      project(4, "Closed", status="closed"), project(5, "Hidden", nonpublic=True)]})
-    f = lambda **k: [x["id"] for x in live.search_projects(["q"], client=c, now=NOW, **k)["items"]]
-    assert set(f()) == {1, 2, 3}                                                  # closed / non-public dropped
-    assert f(kind="hourly") == [3] and f(kind="fixed") and 3 not in f(kind="fixed")
-    assert set(f(min_usd=100)) == {2, 3}                       # fixed budgets only; hourly projects are not touched
-    assert set(f(min_hourly_usd=30)) == {1, 2, 3} and set(f(min_hourly_usd=50)) == {1, 2}
-    assert set(f(max_bids=30)) == {2, 3}
-    assert f(sort="newest")[0] == 1 and f(sort="fewest_bids")[0] == 2
-    w = {x["id"]: x["worth"] for x in live.search_projects(["q"], client=c, now=NOW)["items"]}
-    assert w[2] > w[1] and all(0 <= v <= 100 for v in w.values())     # few bids beats crowded, always within 0-100
-    assert len(f(limit=2)) == 2
-
-
-def test_errors_are_explained_not_crashes():
-    for status, expect in ((429, "slow down"), (503, "HTTP 503")):
-        live.clear_cache()
-        c = httpx.Client(transport=httpx.MockTransport(lambda r, s=status: httpx.Response(s)))
-        with pytest.raises(live.LiveSourceError, match=expect):
-            live.search_projects(["x"], client=c, now=NOW)
-    live.clear_cache()
-    with pytest.raises(live.LiveSourceError, match="unreadable"):
-        live.search_projects(["x"], client=httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200, text="<html>"))), now=NOW)
-    live.clear_cache()
-    def boom(r): raise httpx.ConnectError("down")
-    with pytest.raises(live.LiveSourceError, match="Could not reach"):
-        live.search_projects(["x"], client=httpx.Client(transport=httpx.MockTransport(boom)), now=NOW)
-
-
-def test_query_list_is_capped_and_defaults_apply():
-    c, calls = api({})
-    live.search_projects(["a", "b", "c", "d", "e", "f", "g", "h"], client=c, now=NOW)
-    assert len(calls) == live.MAX_QUERIES
-    live.clear_cache(); calls.clear()
-    live.search_projects(None, client=c, now=NOW)
-    assert [x["query"] for x in calls] == live.DEFAULT_QUERIES[:live.MAX_QUERIES]
-
-
-def test_endpoint_auth_validation_and_error_mapping(client, monkeypatch):
-    c, _ = api({"llm": [project(1, "LLM agent")]})
+def test_endpoint(client, monkeypatch):
     real = live.search_projects
-    monkeypatch.setattr(live, "search_projects", lambda *a, **k: real(*a, client=c, now=NOW, **{x: y for x, y in k.items() if x != "client"}))
-    r = client.get("/api/live/freelancer?q=llm")
-    assert r.status_code == 200 and r.json()["items"][0]["title"] == "LLM agent"
-    assert client.get("/api/live/freelancer?sort=bogus").status_code == 422
-    assert client.get("/api/live/freelancer?kind=weird").status_code == 422
-    monkeypatch.setattr(live, "search_projects", lambda *a, **k: (_ for _ in ()).throw(live.LiveSourceError("Freelancer.com asked us to slow down.")))
-    e = client.get("/api/live/freelancer")
-    assert e.status_code == 502 and "slow down" in e.json()["detail"]
+    monkeypatch.setattr(live, "search_projects", lambda *a, **k: real(*a, client=transport(), now=NOW, **k))
+    r = client.get("/api/live/projects?q=llm&sources=hn_freelance,reddit&only_email=true")
+    assert r.status_code == 200 and [i["id"] for i in r.json()["items"]] == ["hn_freelance:1"]
+    assert client.get("/api/live/projects?sort=bogus").status_code == 422
+    assert client.get("/api/live/freelancer").status_code in (404, 405)
+    e = client.post("/api/tools/extract-emails", json={"text": "Contact Ali Ben <ali@shop.example> today."})
+    assert e.status_code == 200 and e.json()["rows"][0]["name"] == "Ali Ben"
     monkeypatch.setattr(get_settings(), "app_password", "s3cret")
-    assert client.get("/api/live/freelancer").status_code == 401
+    assert client.get("/api/live/projects").status_code == 401
+    assert client.post("/api/tools/extract-emails", json={"text": "x"}).status_code == 401
+
+
+@pytest.mark.parametrize("snippet,name,email,company", [
+    ("Jane Doe <jane@acme-labs.io>", "Jane Doe", "jane@acme-labs.io", "Acme Labs"),
+    ("Please contact Omar Haddad at omar@datawise.ai to apply.", "Omar Haddad", "omar@datawise.ai", "Datawise"),
+    ("Company: Northwind Traders\nApply at jobs@northwind.example", "", "jobs@northwind.example", "Northwind Traders"),
+    ("Email sara.khan@gmail.com", "Sara Khan", "sara.khan@gmail.com", ""),           # free mail: no company guessed
+    ("Questions: hello@tiny-shop.co.uk", "", "hello@tiny-shop.co.uk", "Tiny Shop"),
+])
+def test_email_table_rows(snippet, name, email, company):
+    rows = emailtable.contact_rows(snippet)
+    assert [(r["name"], r["email"], r["company"]) for r in rows] == [(name, email, company)]
+
+
+def test_email_table_skips_non_contact_addresses_and_marks_guesses():
+    filler = " We build data tools for retailers and ship every week." * 3
+    rows = emailtable.contact_rows(f"noreply@acme.io. Privacy questions: privacy@acme.io.{filler}\nTalk to lee.park@acme.io")
+    assert [r["email"] for r in rows] == ["lee.park@acme.io"]
+    assert rows[0]["name_from"] == "address" and rows[0]["company_from"] == "domain"
+
+
+def test_hn_angle_bracket_addresses_survive():
+    """HN sends "Kim Lee <kim@bolt.example.io>" escaped; decoding it twice used to turn the address into a tag and drop it."""
+    extra = hn_comment(4, 500, "SEEKING FREELANCER | Bolt | Remote<p>LLM agent work. Contact Kim Lee &lt;kim@bolt.example.io&gt;")
+    FREELANCE_COMMENTS.append(extra)
+    try:
+        out = live.search_projects(None, sources=["hn_freelance"], client=transport(), now=NOW)
+    finally:
+        FREELANCE_COMMENTS.remove(extra)
+    kim = next(r for r in out["items"] if r["id"] == "hn_freelance:4")["emails"]
+    assert [(e["name"], e["email"], e["company"]) for e in kim] == [("Kim Lee", "kim@bolt.example.io", "Bolt")]

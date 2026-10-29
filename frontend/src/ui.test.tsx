@@ -124,7 +124,7 @@ const PROFILES = [
   { id: 7, name: "AI / ML projects: contract & freelance only", params: { keywords: ["machine learning"], required_skills: [], sources: ["jobicy", "wwr"], strict_engagement: true }, is_preset: true },
 ];
 const SOURCES = [{ key: "jobicy", name: "Jobicy (public API)", kind: "api", enabled: true, verified: true, docs_url: "https://jobicy.com", terms_url: "", notes: "", checked_at: "2026-10-27" },
-  { key: "freelancer_live", name: "Freelancer.com: live projects (not stored)", kind: "live", enabled: true, verified: true, docs_url: "javascript:alert(1)", terms_url: "https://www.freelancer.com/about/apiterms", notes: "no storing", checked_at: "2026-10-27" }];
+  { key: "reddit_live", name: "Reddit: [Hiring] posts (live, not stored)", kind: "live", enabled: true, verified: true, docs_url: "javascript:alert(1)", terms_url: "https://redditinc.com/policies/data-api-terms", notes: "no storing", checked_at: "2026-10-27" }];
 
 test("run panel: preselects the AI/ML saved search and shows only the newest run, compact until opened", async () => {
   const runs = [3, 2, 1].map((i) => run({ id: i, exports: [file("opportunities", `o${i}.csv`, 2, `/x/${i}`)] }));
@@ -156,7 +156,7 @@ test("run panel: a custom search offers the strict contract/freelance option and
   fireEvent.change(await screen.findByLabelText("Saved search"), { target: { value: "custom" } });
   expect(await screen.findByLabelText(/Only listings that say contract \/ freelance \/ part-time/)).toBeInTheDocument();
   expect(screen.getByLabelText(/Jobicy \(public API\)/)).toBeInTheDocument();
-  expect(screen.queryByLabelText(/Freelancer.com: live projects/)).not.toBeInTheDocument();   // the live view is not a stored source
+  expect(screen.queryByLabelText(/Reddit: [Hiring] posts/)).not.toBeInTheDocument();   // the live view is not a stored source
 });
 
 // ---------------------------------------------------------------- downloads
@@ -220,43 +220,64 @@ test("files: a failed backup is reported on the page", async () => {
 });
 
 // ---------------------------------------------------------------- live projects
-const PROJECT = { id: 11, title: "LLM agent for support", url: "https://www.freelancer.com/projects/machine-learning/LLM-agent-11", type: "fixed", budget_min: 250, budget_max: 750,
-  currency: "USD", currency_sign: "$", budget_max_usd: 750, bids: 4, bid_avg: 300, competition: "few bids", age_minutes: 25, skills: ["Python", "LLM"], excerpt: "Build an agent", fit: 71, worth: 78, urgent: false, matched_skills: ["python"] };
-const NONE = { queries: [], total_matches: 0, items: [], cached_for_minutes: 15, notice: "x" };
+const MAIL = { name: "Jane Doe", email: "jane@acme.example", company: "Acme", name_from: "text", company_from: "post", invited: true,
+  post_title: "SEEKING FREELANCER | Acme | LLM agent", post_url: "https://news.ycombinator.com/item?id=11", source_name: "HN: Seeking freelancer" };
+const POST = { id: "hn:11", source: "hn_freelance", source_name: "HN: Seeking freelancer", title: "Acme | LLM agent for support", url: "https://news.ycombinator.com/item?id=11",
+  company: "Acme", poster: "", engagement: "freelance", remote: "remote", age_minutes: 25, excerpt: "Build an agent", matched: ["LLM"], emails: [MAIL], fit: 71, worth: 78, matched_skills: ["python"] };
+const NONE = { queries: [], sources: {}, errors: [], total_matches: 0, items: [], emails: [], reddit_configured: false, cached_for_minutes: 15, notice: "x" };
 
-test("live projects: loading, then results with competition, safe link and the no-storage notice", async () => {
-  serve({ "/live/freelancer": { queries: ["llm"], total_matches: 1, items: [PROJECT, { ...PROJECT, id: 12, title: "Evil", url: "javascript:alert(1)", competition: "crowded", bids: 150 }], cached_for_minutes: 15, notice: "x" } });
+test("live projects: posts from HN and Reddit with the client email table, safe links and the no-storage notice", async () => {
+  serve({ "/live/projects": { ...NONE, total_matches: 2, items: [POST, { ...POST, id: "hn:12", title: "Evil", url: "javascript:alert(1)", emails: [] }], emails: [MAIL] } });
   render(<LiveProjects />);
   expect(screen.getByRole("status")).toHaveTextContent("Loading");
-  expect(screen.getByText(/do not allow storing its data/)).toBeInTheDocument();
+  expect(screen.getByText(/Nothing is stored/)).toBeInTheDocument();
   const link = await screen.findByRole("link", { name: /LLM agent for support/ });
-  expect(link).toHaveAttribute("href", "https://www.freelancer.com/projects/machine-learning/LLM-agent-11");
-  expect(screen.getByText("few bids")).toBeInTheDocument();
-  expect(screen.getByText("crowded")).toBeInTheDocument();
+  expect(link).toHaveAttribute("href", "https://news.ycombinator.com/item?id=11");
+  expect(screen.getByText("Client emails (1)")).toBeInTheDocument();
+  expect(screen.getByText("Jane Doe")).toBeInTheDocument();
+  expect(screen.getAllByRole("link", { name: "jane@acme.example" })[0]).toHaveAttribute("href", "mailto:jane@acme.example");
+  expect(screen.queryByText(/freelancer\.com/i)).not.toBeInTheDocument();
   expect(screen.queryByRole("link", { name: /Evil/ })).not.toBeInTheDocument();         // javascript: is plain text, never a link
   expect(screen.getByText(/Evil/)).toBeInTheDocument();
 });
 
-test("live projects: error and empty states", async () => {
-  vi.spyOn(globalThis, "fetch").mockImplementation(() => json({ detail: "Freelancer.com asked us to slow down." }, 502));
+test("live projects: a busy source is one quiet line, never a banner; and the empty state", async () => {
+  serve({ "/live/projects": { ...NONE, total_matches: 1, items: [POST], emails: [MAIL], errors: ["Reddit: Reddit is busy right now"],
+    sources: { hn_freelance: { ok: true, posts: 3, matching: 1, name: "HN: Seeking freelancer" }, reddit: { ok: false, posts: 0, name: "Reddit", error: "Reddit is busy right now" } } } });
   const { unmount } = render(<LiveProjects />);
-  expect(await screen.findByRole("alert")).toHaveTextContent("slow down");
+  const line = await screen.findByTestId("source-line");
+  expect(line).toHaveTextContent("HN: Seeking freelancer: 1 matching · Reddit: unavailable right now");
+  expect(screen.queryByText(/Reddit is busy right now/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/REDDIT_CLIENT_ID|API app/)).not.toBeInTheDocument();
   unmount();
   vi.restoreAllMocks();
-  serve({ "/live/freelancer": NONE });
+  serve({ "/live/projects": NONE });
   render(<LiveProjects />);
-  expect(await screen.findByText(/No open projects match/)).toBeInTheDocument();
+  expect(await screen.findByText(/No client posts match/)).toBeInTheDocument();
 });
 
-test("live projects: Search sends the chosen filters", async () => {
-  const spy = serve({ "/live/freelancer": NONE });
+test("live projects: Search sends the chosen sources and filters", async () => {
+  const spy = serve({ "/live/projects": NONE });
   render(<LiveProjects />);
-  await screen.findByText(/No open projects match/);
-  fireEvent.change(screen.getByLabelText("max bids"), { target: { value: "10" } });
+  await screen.findByText(/No client posts match/);
+  expect(screen.queryByLabelText(/Reddit \[Hiring\] posts/)).not.toBeInTheDocument();   // no Reddit keys: not offered at all
+  fireEvent.click(screen.getByLabelText(/Mastodon #hiring/));
+  fireEvent.click(screen.getByLabelText(/only posts with an email/));
   fireEvent.change(screen.getByLabelText("sort"), { target: { value: "newest" } });
-  fireEvent.change(screen.getByLabelText("min hourly rate"), { target: { value: "35" } });
   fireEvent.click(screen.getByRole("button", { name: "Search" }));
-  await waitFor(() => expect(spy.mock.calls.some((c) => /max_bids=10/.test(String(c[0])) && /sort=newest/.test(String(c[0])) && /min_hourly_usd=35/.test(String(c[0])))).toBe(true));
+  await waitFor(() => expect(spy.mock.calls.some((c) => { const u = decodeURIComponent(String(c[0]));
+    return /sources=hn_freelance,hn_hiring,reddit,boards&/.test(u) && /only_email=true/.test(u) && /sort=newest/.test(u); })).toBe(true));
+});
+
+test("live projects: pasted text becomes a Name / Email / Company table", async () => {
+  const spy = serve({ "/live/projects": NONE, "POST /tools/extract-emails": () => json({ rows: [{ ...MAIL, name: "Ali Ben", email: "ali@shop.example", company: "Shop", company_from: "domain" }] }) });
+  render(<LiveProjects />);
+  await screen.findByText(/No client posts match/);
+  fireEvent.change(screen.getByLabelText("text to search for emails"), { target: { value: "Ali Ben <ali@shop.example>" } });
+  fireEvent.click(screen.getByRole("button", { name: "Find emails" }));
+  expect(await screen.findByText("Ali Ben")).toBeInTheDocument();
+  expect(screen.getByText("Shop")).toBeInTheDocument();
+  expect(spy.mock.calls.some((c) => String(c[0]).endsWith("/tools/extract-emails"))).toBe(true);
 });
 
 // ---------------------------------------------------------------- sources
@@ -269,7 +290,7 @@ test("sources: live source is labelled, unsafe docs link is dropped, the resourc
   const res = screen.getByTestId("resources");
   expect(res.tagName).toBe("DETAILS");
   expect(res).not.toHaveAttribute("open");
-  expect(res).toHaveTextContent("Freelancer.com: machine learning");
+  expect(res).toHaveTextContent("Upwork");
   expect(res).toHaveTextContent("Reddit r/forhire");
   expect(res).toHaveTextContent("never reads it");
 });

@@ -40,8 +40,13 @@ class Settings(BaseSettings):
     freelancer_oauth_token: str = ""
     upwork_api_key: str = ""
 
-    # Freelancer.com public projects API (live view only: its terms forbid storing the data)
-    freelancer_api_url: str = "https://www.freelancer.com/api/projects/0.1/projects/active/"
+    # Reddit OAuth "script" app for Find work -> Live projects (free: https://www.reddit.com/prefs/apps)
+    reddit_client_id: str = ""
+    reddit_client_secret: str = ""
+    # Live projects: Hacker News API base (overridable for the hermetic browser test) and an optional allow-list of
+    # live sources, comma separated (empty = all)
+    live_hn_api_url: str = "https://hn.algolia.com/api/v1"
+    live_sources: str = ""
 
     http_user_agent: str = "ClientHuntBot/0.1 (personal job-search tool; contact: owner)"
     run_worker_enabled: bool = True

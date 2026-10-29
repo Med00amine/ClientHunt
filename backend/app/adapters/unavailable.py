@@ -19,5 +19,5 @@ class Freelancer(Adapter):
 
     def fetch(self, params: SearchParams) -> list[RawOpportunity]:
         raise AdapterUnavailable(
-            "Freelancer.com's API terms say 'You may not copy or store any Data', so its projects are not stored in "
-            "runs or exports. Use the Live projects tab (shown live, never saved) and bid on Freelancer.com yourself.")
+            "Freelancer.com's API terms say 'You may not copy or store any Data', so it is not used. Find work → Live "
+            "projects shows client posts from Hacker News and Reddit instead.")
