@@ -53,9 +53,54 @@ REMOTIVE = {"jobs": [
      "publication_date": "2026-10-27T10:00:00", "job_type": "full_time"}]}
 JOBICY = {"jobs": [{"id": 9, "url": "https://jobicy.com/jobs/9", "jobTitle": "Part-time Python AI developer", "companyName": "Tiny",
                     "jobDescription": "Python and AI", "pubDate": "2026-10-26 10:00:00", "jobType": ["Part-Time"]}]}
+REMOTEOK = [{"legal": "API terms: link back to Remote OK"},
+            {"id": 55, "url": "https://remoteok.com/remote-jobs/55", "position": "Contract LLM Engineer", "company": "Okco",
+             "description": "<p>Build RAG in Python.</p>", "date": "2026-10-25T10:00:00+00:00", "tags": ["contract", "python"]},
+            {"id": 56, "url": "https://remoteok.com/remote-jobs/56", "position": "Staff ML Engineer", "company": "Perm",
+             "description": "<p>Full-time machine learning role.</p>", "date": "2026-10-25T10:00:00+00:00", "tags": ["python"]}]
+WORKING_NOMADS = [{"url": "https://www.workingnomads.com/jobs/ml-1", "title": "Freelance ML engineer (contract)", "company_name": "Nomadix",
+                   "description": "Machine learning contract, 3 months.", "pub_date": "2026-10-24T10:00:00+00:00"}]
 
 
-def transport(calls=None, reddit_status=200, listing_status=200):
+def rss(*items):
+    body = "".join(f"<item><title>{t}</title><link>{link}</link><guid>{g}</guid><pubDate>Sun, 25 Oct 2026 10:00:00 +0000</pubDate>"
+                   f"<description><![CDATA[{d}]]></description></item>" for t, link, g, d in items)
+    return f'<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>x</title>{body}</channel></rss>'
+
+
+CODEUR = rss(("Agent IA WhatsApp pour cliniques d&amp;#39;Alger", "https://www.codeur.com/projects/101-agent-ia", "101",
+              "<p>Budget : 500 € à 1 000 € - Catégories : Intelligence artificielle, Python</p><p>Nous cherchons un développeur "
+              "pour un chatbot IA. contact@clinique.example</p><p><a href='x'>Voir ce projet sur Codeur</a></p>"),
+             ("Logo pour boulangerie", "https://www.codeur.com/projects/102-logo", "102", "<p>Budget : Moins de 500 € - Catégories : Logo</p>"))
+MOSTAQL = rss(("تطوير بوت محادثة بلغة بايثون", "https://mostaql.com/project/201", "201", "<p>أبحث عن مبرمج لعمل بوت ذكاء اصطناعي بلغة بايثون</p>"),
+              ("تصميم داخلي لفيلا", "https://mostaql.com/project/202", "202", "<p>أبحث عن مصمم داخلي</p>"))
+
+
+def skeet(rkey, text, handle="studio.bsky.social"):
+    return {"uri": f"at://did:plc:x/app.bsky.feed.post/{rkey}", "author": {"handle": handle}, "indexedAt": "2026-10-25T10:00:00Z",
+            "record": {"text": text, "createdAt": "2026-10-25T10:00:00Z"}}
+
+
+BLUESKY = {"posts": [
+    skeet("b1", "We're looking for a freelance Python developer to build an LLM chatbot. Paid project, 2 weeks."),
+    skeet("b2", "Looking for true love and someone to build a beautiful forever with."),                      # not work
+    skeet("b3", "I'm available for freelance AI projects, DM me!"),                                          # self-promotion
+    skeet("b4", "Attorney General warns residents to be careful when hiring freelance engineers via AI sites."),  # news
+]}
+GITHUB = {"items": [
+    {"id": 1, "html_url": "https://github.com/acme/api/issues/1", "title": "[$400] Add RAG retrieval to the Python API",
+     "body": "Algora bounty.", "created_at": "2026-10-20T10:00:00Z", "user": {"login": "acme-bot"}, "assignee": None,
+     "repository_url": "https://api.github.com/repos/acme/api", "labels": [{"name": "💎 Bounty"}]},
+    {"id": 2, "html_url": "https://github.com/acme/api/issues/2", "title": "[$900] Python SDK", "body": "", "created_at": "2026-10-20T10:00:00Z",
+     "user": {"login": "acme-bot"}, "assignee": {"login": "someone"}, "repository_url": "https://api.github.com/repos/acme/api",
+     "labels": [{"name": "💎 Bounty"}]},                                                                  # already taken
+    {"id": 3, "html_url": "https://github.com/data/pipe/issues/3", "title": "Fix the flaky python ingest test", "body": "",
+     "created_at": "2026-10-21T10:00:00Z", "user": {"login": "maint"}, "assignee": None,
+     "repository_url": "https://api.github.com/repos/data/pipe", "labels": [{"name": "💎 Bounty"}, {"name": "$250"}]},
+]}
+
+
+def transport(calls=None, reddit_status=200, listing_status=200, github_status=200):
     def h(req):
         if calls is not None:
             calls.append(str(req.url))
@@ -81,6 +126,19 @@ def transport(calls=None, reddit_status=200, listing_status=200):
             return httpx.Response(200, json=JOBICY)
         if u.host == "himalayas.app":
             return httpx.Response(200, json={"jobs": []})
+        if u.host == "remoteok.com":
+            return httpx.Response(200, json=REMOTEOK)
+        if u.host == "www.workingnomads.com":
+            return httpx.Response(200, json=WORKING_NOMADS)
+        if u.host == "www.codeur.com":
+            return httpx.Response(200, text=CODEUR, headers={"Content-Type": "application/rss+xml"})
+        if u.host == "mostaql.com":
+            return httpx.Response(200, text=MOSTAQL, headers={"Content-Type": "text/xml"})
+        if u.host == "api.bsky.app":
+            return httpx.Response(200, json=BLUESKY)
+        if u.host == "api.github.com":
+            assert "💎 Bounty" in p["q"]
+            return httpx.Response(github_status, json=GITHUB, headers={"x-ratelimit-remaining": "0" if github_status == 403 else "9"})
         return httpx.Response(404)
     return httpx.Client(transport=httpx.MockTransport(h))
 
@@ -98,9 +156,12 @@ def test_client_posts_from_all_sources_with_their_emails():
     out = live.search_projects(None, client=transport(), now=NOW)
     by = {r["id"]: r for r in out["items"]}
     assert set(by) == {"hn_freelance:1", "hn_hiring:10", "reddit:a1", "reddit:a3", "mastodon:https://mas.example/statuses/m1",
-                       "boards:remotive:7", "boards:jobicy:9"}
-    # never collected: people advertising themselves (hn 2, reddit a2, toot m2), full-time jobs (hn 11, toot m3,
-    # remotive 8) and posts that match no search word (hn 3)
+                       "boards:remotive:7", "boards:jobicy:9", "boards:remoteok:55", "boards:workingnomads:https://www.workingnomads.com/jobs/ml-1",
+                       "marketplaces:Codeur.com:101", "marketplaces:Mostaql:201", "bluesky:at://did:plc:x/app.bsky.feed.post/b1",
+                       "bounties:1", "bounties:3"}
+    # never collected: people advertising themselves (hn 2, reddit a2, toot m2, skeet b3), full-time jobs (hn 11, toot m3,
+    # remotive 8, remoteok 56), chat or news (skeet b2, b4), taken bounties (2) and posts that match no search word
+    # (hn 3, the logo and interior-design projects)
     jane = by["hn_freelance:1"]["emails"][0]
     assert (jane["name"], jane["email"], jane["company"]) == ("Jane Doe", "jane.doe@acmelabs.io", "Acme Labs")
     assert by["reddit:a1"]["url"] == "https://www.reddit.com/r/forhire/comments/a1/x/" and by["reddit:a1"]["poster"] == "u/acme_cto"
@@ -109,8 +170,44 @@ def test_client_posts_from_all_sources_with_their_emails():
     assert by["mastodon:https://mas.example/statuses/m1"]["source_name"] == "Mastodon #hiring"
     assert {e["email"] for e in out["emails"]} == {"jane.doe@acmelabs.io", "john@withrebar.ai", "sam@shopify-store.co"}
     assert out["errors"] == [] and all(s["ok"] for s in out["sources"].values())
-    assert out["sources"]["boards"]["matching"] == 2
+    assert out["sources"]["boards"]["matching"] == 4
     assert not any("freelancer.com" in r["url"] for r in out["items"])
+
+
+def test_marketplace_projects_bluesky_and_bounties_are_shaped_for_action():
+    by = {r["id"]: r for r in live.search_projects(None, client=transport(), now=NOW)["items"]}
+    codeur = by["marketplaces:Codeur.com:101"]
+    assert codeur["title"] == "Agent IA WhatsApp pour cliniques d'Alger"                       # Codeur's double escaping undone
+    assert codeur["budget"] == "500 € à 1 000 €" and codeur["source_name"] == "Codeur.com · FR" and codeur["direct"] is True
+    assert codeur["emails"] == [] and "Voir ce projet" not in codeur["excerpt"]                # you answer on the platform
+    assert by["marketplaces:Mostaql:201"]["source_name"] == "Mostaql · AR"
+    assert "بايثون" in by["marketplaces:Mostaql:201"]["matched"]                                  # Arabic search words match
+    sky = by["bluesky:at://did:plc:x/app.bsky.feed.post/b1"]
+    assert sky["url"] == "https://bsky.app/profile/studio.bsky.social/post/b1" and sky["poster"] == "@studio.bsky.social"
+    assert sky["direct"] is False
+    assert (by["bounties:1"]["budget"], by["bounties:3"]["budget"]) == ("$400", "$250")           # from the title, or a label
+    assert by["bounties:1"]["url"] == "https://github.com/acme/api/issues/1" and by["bounties:1"]["company"] == "acme"
+    direct_bonus = by["marketplaces:Codeur.com:101"]["worth"] - by["marketplaces:Codeur.com:101"]["fit"]
+    assert direct_bonus >= 10                                                                     # a direct client project ranks higher
+
+
+def test_reposted_ads_are_merged_and_one_account_cannot_flood(monkeypatch):
+    ads = [skeet(f"r{i}", f"⚡ Open Role! | Python LLM Contract Gig number {i} - we're hiring, 60 USD/hr", handle="jobbot.bsky.social")
+           for i in range(10)]
+    ads.append(skeet("dup", "🚀 Now Hiring! | Python LLM Contract Gig number 1 - we're hiring, 60 USD/hr", handle="other.bsky.social"))
+    monkeypatch.setitem(BLUESKY, "posts", ads)
+    items = live.search_projects(None, sources=["bluesky"], client=transport(), now=NOW)["items"]
+    assert len([r for r in items if r["poster"] == "@jobbot.bsky.social"]) == live.MAX_PER_POSTER
+    assert not any(r["poster"] == "@other.bsky.social" for r in items)        # the same ad with another emoji header
+
+
+def test_stale_posts_are_dropped_and_github_rate_limit_is_quiet():
+    out = live.search_projects(None, sources=["marketplaces"], client=transport(), now=NOW + 60 * 86400, max_days=45)
+    assert out["items"] == [] and out["sources"]["marketplaces"]["ok"]
+    out = live.search_projects(None, sources=["marketplaces"], client=transport(), now=NOW + 60 * 86400, max_days=0)
+    assert out["items"]                                                       # 0 = any age
+    gh = live.search_projects(None, sources=["bounties"], client=transport(github_status=403), now=NOW)
+    assert gh["sources"]["bounties"]["ok"] is False and "busy" in gh["sources"]["bounties"]["error"]
 
 
 def test_only_email_sorting_and_source_choice():

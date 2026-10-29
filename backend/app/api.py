@@ -785,12 +785,14 @@ def suppress(body: schemas.SuppressIn, db: Session = Depends(get_db)):
 
 # ---------------------------------------------------------------- live view (never stored)
 @router.get("/live/projects")
-def live_projects(q: str = Query("", max_length=500), sources: str = Query("", max_length=100),
+def live_projects(q: str = Query("", max_length=1500), sources: str = Query("", max_length=200),
                   subreddits: str = Query("", max_length=300), only_email: bool = False,
-                  sort: str = Query("best", pattern="^(best|newest)$"), limit: int = Query(60, ge=1, le=200)):
-    """Client posts from Hacker News and Reddit, fetched live, with the emails they published. Nothing is stored."""
+                  sort: str = Query("best", pattern="^(best|newest)$"), limit: int = Query(60, ge=1, le=300),
+                  max_days: int = Query(live_svc.DEFAULT_MAX_DAYS, ge=0, le=365)):
+    """Client posts from HN, client marketplaces, Bluesky, Mastodon, GitHub bounties and remote boards, fetched live,
+    with the emails they published. Nothing is stored."""
     split = lambda v: [x for x in (t.strip() for t in v.split(",")) if x] or None  # noqa: E731
-    return live_svc.search_projects(split(q), split(sources), sort, only_email, limit, split(subreddits))
+    return live_svc.search_projects(split(q), split(sources), sort, only_email, limit, split(subreddits), max_days=max_days)
 
 
 @router.post("/tools/extract-emails")

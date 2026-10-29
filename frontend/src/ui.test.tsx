@@ -264,9 +264,26 @@ test("live projects: Search sends the chosen sources and filters", async () => {
   fireEvent.click(screen.getByLabelText(/Mastodon #hiring/));
   fireEvent.click(screen.getByLabelText(/only posts with an email/));
   fireEvent.change(screen.getByLabelText("sort"), { target: { value: "newest" } });
+  fireEvent.change(screen.getByLabelText("posted within"), { target: { value: "7" } });
   fireEvent.click(screen.getByRole("button", { name: "Search" }));
-  await waitFor(() => expect(spy.mock.calls.some((c) => { const u = decodeURIComponent(String(c[0]));
-    return /sources=hn_freelance,hn_hiring,reddit,boards&/.test(u) && /only_email=true/.test(u) && /sort=newest/.test(u); })).toBe(true));
+  await waitFor(() => expect(spy.mock.calls.some((c) => { const u = decodeURIComponent(String(c[0]).replace(/\+/g, " "));
+    return /sources=marketplaces,hn_freelance,hn_hiring,bluesky,bounties,boards,reddit&/.test(u) && /only_email=true/.test(u)
+      && /sort=newest/.test(u) && /max_days=7/.test(u) && /intelligence artificielle/.test(u) && /ذكاء اصطناعي/.test(u); })).toBe(true));
+});
+
+test("live projects: client projects show their budget, and the direct-only filter hides job ads", async () => {
+  const project = { ...POST, id: "marketplaces:Codeur.com:1", source: "marketplaces", source_name: "Codeur.com · FR", title: "Agent IA WhatsApp",
+    url: "https://www.codeur.com/projects/1-agent-ia", emails: [], direct: true, budget: "500 € à 1 000 €" };
+  const ad = { ...POST, id: "mastodon:x", source: "mastodon", source_name: "Mastodon #AIjobs", title: "Open Role | ML Engineer", emails: [], direct: false, budget: "" };
+  serve({ "/live/projects": { ...NONE, total_matches: 2, items: [project, ad] } });
+  render(<LiveProjects />);
+  expect(await screen.findByRole("link", { name: /Agent IA WhatsApp/ })).toHaveAttribute("href", "https://www.codeur.com/projects/1-agent-ia");
+  expect(screen.getByText("500 € à 1 000 €")).toBeInTheDocument();
+  expect(screen.getByText("client project")).toBeInTheDocument();
+  expect(screen.getByText(/Open Role \| ML Engineer/)).toBeInTheDocument();
+  fireEvent.click(screen.getByLabelText(/only direct client projects/));
+  expect(screen.queryByText(/Open Role \| ML Engineer/)).not.toBeInTheDocument();
+  expect(screen.getByRole("link", { name: /Agent IA WhatsApp/ })).toBeInTheDocument();
 });
 
 test("live projects: pasted text becomes a Name / Email / Company table", async () => {

@@ -5,9 +5,12 @@ import { ago } from "../format";
 import { Async, useLoad } from "../hooks";
 import { Chip, Fold, Table } from "../ui";
 
-const DEFAULT_Q = "machine learning, LLM, RAG, AI agent, NLP, computer vision, python, data science, FastAPI, AWS, chatbot, OpenAI, GPT, AI, automation, scraping, data engineer, Django";
-const SOURCES: [string, string][] = [["hn_freelance", "HN: Seeking freelancer"], ["hn_hiring", "HN: Who is hiring (contract / part-time)"], ["reddit", "Reddit [Hiring] posts"],
-  ["mastodon", "Mastodon #hiring / #freelance"], ["boards", "Remote boards (contract only)"]];
+// English, plus the words French (Codeur.com) and Arabic (Mostaql) clients use for the same work
+const DEFAULT_Q = "machine learning, LLM, RAG, AI agent, NLP, computer vision, python, data science, FastAPI, AWS, chatbot, OpenAI, GPT, AI, automation, scraping, data engineer, Django, API, backend, bot, "
+  + "IA, intelligence artificielle, automatisation, données, développeur Python, ذكاء اصطناعي, الذكاء الاصطناعي, بايثون, تعلم الآلة, بوت, أتمتة, تحليل البيانات, برمجة";
+const SOURCES: [string, string][] = [["marketplaces", "Client marketplaces (Codeur.com FR, Mostaql AR)"], ["hn_freelance", "HN: Seeking freelancer"],
+  ["hn_hiring", "HN: Who is hiring (contract / part-time)"], ["bluesky", "Bluesky (client-intent search)"], ["mastodon", "Mastodon #hiring / #freelance / #AIjobs"],
+  ["bounties", "GitHub paid bounties (Algora)"], ["boards", "Remote boards (contract only)"], ["reddit", "Reddit [Hiring] posts"]];
 
 /** One quiet line: how many posts each source gave. A source that is busy or down is named, not shouted. */
 function SourceLine({ sources }: { sources: Record<string, any> }) {
@@ -72,16 +75,18 @@ function Extractor() {
 }
 
 export default function LiveProjects() {
-  const [form, setForm] = useState({ q: DEFAULT_Q, sources: SOURCES.map(([k]) => k), only_email: false, sort: "best" });
+  const [form, setForm] = useState({ q: DEFAULT_Q, sources: SOURCES.map(([k]) => k), only_email: false, sort: "best", max_days: 45 });
   const [applied, setApplied] = useState(form);
-  const qs = new URLSearchParams({ q: applied.q, sources: applied.sources.join(","), only_email: String(applied.only_email), sort: applied.sort, limit: "120" }).toString();
+  const [directOnly, setDirectOnly] = useState(false);
+  const qs = new URLSearchParams({ q: applied.q, sources: applied.sources.join(","), only_email: String(applied.only_email), sort: applied.sort,
+    max_days: String(applied.max_days), limit: "300" }).toString();
   const st = useLoad(() => api(`/live/projects?${qs}`), [qs]);
   const set = (k: string, v: any) => setForm({ ...form, [k]: v });
   const toggle = (k: string) => set("sources", form.sources.includes(k) ? form.sources.filter((s) => s !== k) : [...form.sources, k]);
   return (
     <>
       <div className="alert" style={{ borderColor: "var(--accent)" }}>
-        Clients asking for help right now on Hacker News, Reddit, Mastodon and remote job boards, read through their public APIs and feeds, with the emails they published. Nothing is stored: open the post and reply or email the client yourself.
+        Clients asking for help right now on client marketplaces, Hacker News, Bluesky, Mastodon, GitHub bounties and remote job boards, read through their public APIs and feeds, with the emails they published. Nothing is stored: open the post and reply or email the client yourself.
       </div>
       <div className="row" style={{ marginBottom: 8 }}>
         <input aria-label="search words" className="grow" value={form.q} onChange={(e) => set("q", e.target.value)} />
@@ -91,6 +96,9 @@ export default function LiveProjects() {
       <div className="row" style={{ marginBottom: 8 }}>
         {SOURCES.filter(([k]) => k !== "reddit" || (st.data as any)?.reddit_configured).map(([k, label]) => <label key={k} className="in"><input type="checkbox" checked={form.sources.includes(k)} onChange={() => toggle(k)} /> {label}</label>)}
         <label className="in"><input type="checkbox" checked={form.only_email} onChange={(e) => set("only_email", e.target.checked)} /> only posts with an email</label>
+        <select aria-label="posted within" value={form.max_days} onChange={(e) => set("max_days", Number(e.target.value))}>
+          <option value={7}>last 7 days</option><option value={14}>last 14 days</option><option value={45}>last 45 days</option><option value={90}>last 90 days</option></select>
+        <label className="in"><input type="checkbox" checked={directOnly} onChange={(e) => setDirectOnly(e.target.checked)} /> only direct client projects</label>
       </div>
       <Extractor />
       <Async state={st} empty={(d: any) => (d.items.length ? null : "No client posts match. Add more search words or tick more sources.")}>
@@ -105,13 +113,14 @@ export default function LiveProjects() {
                 <EmailTable rows={d.emails} withPost />
               </>
             )}
-            <h3 style={{ margin: "12px 0 4px" }}>Posts ({d.total_matches})</h3>
-            <p className="muted">Kept in memory for {d.cached_for_minutes} minutes.</p>
-            <Table head={[<span title="Skill fit, plus a published email, plus freshness. A heuristic.">Chance</span>, "Post", "Emails", "Posted"]}>
-              {d.items.map((p: any) => (
+            <h3 style={{ margin: "12px 0 4px" }}>Posts ({d.total_matches}){directOnly && ` · ${d.items.filter((p: any) => p.direct).length} direct client projects`}</h3>
+            <p className="muted">Kept in memory for {d.cached_for_minutes} minutes. Marketplace projects and bounties are answered on their site.</p>
+            <Table head={[<span title="Skill fit, plus a published email, plus 10 for a direct client project, plus freshness. A heuristic.">Chance</span>, "Post", "Emails", "Posted"]}>
+              {d.items.filter((p: any) => !directOnly || p.direct).map((p: any) => (
                 <tr key={p.id}>
                   <td className="score">{Math.round(p.worth)}</td>
-                  <td><ExtLink href={p.url}><b>{p.title}</b> ↗</ExtLink> <Chip>{p.source_name}</Chip>{p.engagement !== "unknown" && <Chip>{p.engagement.replace("_", "-")}</Chip>}
+                  <td><ExtLink href={p.url}><b>{p.title}</b> ↗</ExtLink> <Chip>{p.source_name}</Chip>{p.direct && <Chip tone="ok" title="A client describing work they will pay for, not a job ad">client project</Chip>}
+                    {p.budget && <Chip tone="ok">{p.budget}</Chip>}{p.engagement !== "unknown" && <Chip>{p.engagement.replace("_", "-")}</Chip>}
                     <div className="muted">{p.excerpt.slice(0, 200)}{p.excerpt.length > 200 ? "…" : ""}</div>
                     <div>{p.matched_skills.slice(0, 6).map((s: string) => <Chip key={s}>{s}</Chip>)}</div></td>
                   <td>{p.emails.length ? p.emails.map((e: Row) => <div key={e.email}><a href={`mailto:${e.email}`}>{e.email}</a></div>) : <span className="muted">reply on the post</span>}</td>
